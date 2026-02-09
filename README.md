@@ -87,10 +87,30 @@ Menschen, die:
 - [x] Produkt-Vision und Problem-Definition
 - [x] Guided Mode Fragenstruktur
 - [x] Architektur-Konzept (MVP + Full Version)
+- [x] MVP-Implementierungsanleitung (No-Code)
 - [ ] Beta-Tester gewinnen
 - [ ] MVP mit No-Code-Tools umsetzen
 
 > Beta-Tester gesucht! Wenn du Product Owner bist und Anforderungen besser formulieren möchtest, melde dich.
+
+## MVP: Jetzt testen
+
+**Der MVP ist bereit zum Aufbau.** Komplette Anleitung im [`/mvp`](./mvp/) Ordner.
+
+| | |
+|---|---|
+| **Stack** | Tally + Make.com + Claude API |
+| **Setup-Zeit** | ~1 Arbeitstag |
+| **Kosten** | ~42 USD/Monat für bis zu 100 Beta-Tester |
+| **User-Erlebnis** | 10 Fragen → PDF per E-Mail in 5 Minuten |
+
+**Quick Links:**
+- [MVP-Überblick](./mvp/README.md)
+- [Tally-Formular einrichten](./mvp/tally-setup.md)
+- [Make.com Szenario](./mvp/make-scenario.md)
+- [Claude API Prompt](./mvp/claude-prompt-mvp.md)
+- [Testing Guide](./mvp/testing-guide.md)
+- [Kostenübersicht](./mvp/cost-estimate.md)
 
 ## Repository-Struktur
 
@@ -99,6 +119,14 @@ Menschen, die:
 ├── README.md                          # Dieses Dokument
 ├── ARCHITECTURE.md                    # Tech Stack MVP vs. Full Version
 ├── USER_FLOW.md                       # Guided Mode Step-by-Step
+├── mvp/
+│   ├── README.md                      # MVP-Überblick und Quick Start
+│   ├── tally-setup.md                 # Tally-Formular Konfiguration
+│   ├── make-scenario.md               # Make.com Szenario Blueprint
+│   ├── google-docs-template.md        # PDF-Template Spezifikation
+│   ├── claude-prompt-mvp.md           # Optimierter Single-Shot Prompt
+│   ├── testing-guide.md               # Testszenarien und Beta-Plan
+│   └── cost-estimate.md               # Kostenaufstellung
 ├── examples/
 │   ├── example-input.md               # Beispiel-Antworten aus dem Guided Mode
 │   ├── example-output.md              # Daraus generierte User Stories
