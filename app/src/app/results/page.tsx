@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGuidedForm } from '@/hooks/use-guided-form';
 import { StoryCard } from '@/components/results/story-card';
@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 export default function ResultsPage() {
   const router = useRouter();
   const { generatedOutput, answers, reset } = useGuidedForm();
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!generatedOutput) {
@@ -29,6 +30,7 @@ export default function ResultsPage() {
   const { userStories, nfrs, openQuestions, sprintPlan } = generatedOutput;
 
   const handleDownloadPDF = async () => {
+    setPdfError(null);
     try {
       const response = await fetch('/api/export/pdf', {
         method: 'POST',
@@ -55,7 +57,7 @@ export default function ResultsPage() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('PDF download error:', err);
-      alert('PDF-Download fehlgeschlagen. Bitte versuche es erneut.');
+      setPdfError('PDF-Download fehlgeschlagen. Bitte versuchen Sie es erneut.');
     }
   };
 
@@ -87,6 +89,11 @@ export default function ResultsPage() {
               </Button>
             </div>
           </div>
+          {pdfError && (
+            <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-sm text-red-700">
+              {pdfError}
+            </div>
+          )}
         </div>
       </div>
 

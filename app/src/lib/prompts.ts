@@ -24,8 +24,9 @@ export function buildGenerationPrompt(answers: GuidedFormAnswers): string {
         ? 'Ergänzt bestehende Systeme'
         : 'Kompletter Neustart';
 
+  const platforms = answers.platforms || [];
   const offlineLine =
-    answers.platforms.includes('Tablet') || answers.platforms.includes('Smartphone')
+    platforms.includes('Tablet') || platforms.includes('Smartphone')
       ? `\n- **Offline-Fähigkeit:** ${answers.offlineCapability || 'nicht angegeben'}`
       : '';
 
@@ -43,10 +44,10 @@ ${answers.existingSystemDetails ? `- **Details:** ${answers.existingSystemDetail
 - **Technisches Level:** ${answers.techLevel} von 5
 
 ## Anforderungen
-- **Hauptprobleme:** ${answers.mainPain.join(', ')}
+- **Hauptprobleme:** ${(answers.mainPain || []).join(', ')}
 - **Top-3-Funktionen (priorisiert):**
-  ${answers.topFeatures.map((f, i) => `${i + 1}. ${f}`).join('\n  ')}
-- **Plattformen:** ${answers.platforms.join(', ')}${offlineLine}
+  ${(answers.topFeatures || []).map((f, i) => `${i + 1}. ${f}`).join('\n  ')}
+- **Plattformen:** ${platforms.join(', ')}${offlineLine}
 
 ## Projekt-Strategie
 ${answers.strategy}

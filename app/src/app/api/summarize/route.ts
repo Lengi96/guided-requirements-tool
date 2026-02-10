@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ summary: textContent.text });
+    return NextResponse.json({ success: true, summary: textContent.text });
   } catch (error) {
     console.error('Summarize error:', error);
 

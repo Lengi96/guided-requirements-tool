@@ -17,7 +17,6 @@ import {
   USER_COUNT_OPTIONS,
   getPainPointOptions,
   getFeatureOptions,
-  getPhaseInfo,
   needsSystemDetails,
   needsOfflineQuestion,
 } from '@/lib/questions';
@@ -65,8 +64,13 @@ export default function GuidedPage() {
   const totalSteps = steps.length;
   const currentStepConfig = steps[currentStep - 1];
   const progress = Math.round((currentStep / totalSteps) * 100);
+  const PHASE_NAMES: Record<number, string> = {
+    1: 'Projekt-Kontext',
+    2: 'Schmerzpunkte & Prioritäten',
+    3: 'Strategie & Abschluss',
+  };
   const phaseInfo = currentStepConfig
-    ? getPhaseInfo(currentStep)
+    ? { phase: currentStepConfig.phase, name: PHASE_NAMES[currentStepConfig.phase] || '' }
     : { phase: 1, name: '' };
 
   const handleNext = () => {
@@ -103,6 +107,10 @@ export default function GuidedPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answers, phase }),
       });
+      if (!res.ok) {
+        setSummaryText('Zusammenfassung konnte nicht erstellt werden. Sie können trotzdem fortfahren.');
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         setSummaryText(data.summary);
@@ -132,6 +140,11 @@ export default function GuidedPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answers }),
       });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        store.setError(errorData?.error || 'Serverfehler bei der Generierung.');
+        return;
+      }
       const data = await res.json();
       if (data.success && data.output) {
         store.setGeneratedOutput(data.output);

@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 
     const output = parseClaudeOutput(textContent.text);
 
-    return NextResponse.json(output);
+    return NextResponse.json({ success: true, output });
   } catch (error) {
     console.error('Generate error:', error);
 
