@@ -6,11 +6,23 @@ import { parseClaudeOutput } from '@/lib/parser';
 
 export async function POST(request: NextRequest) {
   try {
-    const answers: GuidedFormAnswers = await request.json();
+    const body = await request.json();
+    const { answers } = body as { answers: GuidedFormAnswers };
 
-    if (!answers.projectVision || !answers.category || !answers.topFeatures?.length) {
+    const missing: string[] = [];
+    if (!answers?.projectVision) missing.push('Projektvision');
+    if (!answers?.category) missing.push('Kategorie');
+    if (!answers?.topFeatures?.length) missing.push('Top-Funktionen');
+    if (!answers?.targetRoles) missing.push('Zielgruppen-Rollen');
+    if (!answers?.userCount) missing.push('Nutzeranzahl');
+    if (!answers?.techLevel) missing.push('Technisches Level');
+    if (!answers?.mainPain?.length) missing.push('Hauptprobleme');
+    if (!answers?.platforms?.length) missing.push('Plattformen');
+    if (!answers?.strategy) missing.push('Strategie');
+
+    if (missing.length > 0) {
       return NextResponse.json(
-        { error: 'Pflichtfelder fehlen. Bitte fülle das Formular vollständig aus.' },
+        { error: `Pflichtfelder fehlen: ${missing.join(', ')}` },
         { status: 400 },
       );
     }
@@ -24,9 +36,10 @@ export async function POST(request: NextRequest) {
     }
 
     const client = new Anthropic({ apiKey });
+    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929';
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model,
       max_tokens: 4096,
       temperature: 0.3,
       system: SYSTEM_PROMPT,
@@ -48,7 +61,7 @@ export async function POST(request: NextRequest) {
 
     const output = parseClaudeOutput(textContent.text);
 
-    return NextResponse.json(output);
+    return NextResponse.json({ success: true, output });
   } catch (error) {
     console.error('Generate error:', error);
 

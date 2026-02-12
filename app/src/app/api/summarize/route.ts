@@ -27,9 +27,10 @@ export async function POST(request: NextRequest) {
     }
 
     const client = new Anthropic({ apiKey });
+    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929';
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model,
       max_tokens: 500,
       temperature: 0.3,
       system: SUMMARY_SYSTEM_PROMPT,
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ summary: textContent.text });
+    return NextResponse.json({ success: true, summary: textContent.text });
   } catch (error) {
     console.error('Summarize error:', error);
 

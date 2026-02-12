@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation';
 import { useGuidedForm } from '@/hooks/use-guided-form';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,12 +16,12 @@ import {
   USER_COUNT_OPTIONS,
   getPainPointOptions,
   getFeatureOptions,
-  getPhaseInfo,
   needsSystemDetails,
   needsOfflineQuestion,
 } from '@/lib/questions';
 import { GuidedFormAnswers } from '@/lib/types';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useMemo } from 'react';
+import { ArrowLeft, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function GuidedPage() {
   const router = useRouter();
@@ -32,6 +31,7 @@ export default function GuidedPage() {
   const [summaryText, setSummaryText] = useState('');
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (generatedOutput) {
@@ -39,37 +39,52 @@ export default function GuidedPage() {
     }
   }, [generatedOutput, router]);
 
+  // Warn before losing unsaved progress
+  useEffect(() => {
+    if (currentStep <= 1) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [currentStep]);
+
   // Calculate actual step mapping based on conditional logic
-  const getStepConfig = useCallback(() => {
-    const steps: { id: string; phase: number }[] = [
+  const steps = useMemo(() => {
+    const s: { id: string; phase: number }[] = [
       { id: 'vision', phase: 1 },
       { id: 'audience', phase: 1 },
       { id: 'category', phase: 1 },
       { id: 'systems', phase: 1 },
     ];
     if (needsSystemDetails(answers)) {
-      steps.push({ id: 'systemDetails', phase: 1 });
+      s.push({ id: 'systemDetails', phase: 1 });
     }
-    steps.push({ id: 'problems', phase: 2 });
-    steps.push({ id: 'features', phase: 2 });
-    steps.push({ id: 'platforms', phase: 2 });
+    s.push({ id: 'problems', phase: 2 });
+    s.push({ id: 'features', phase: 2 });
+    s.push({ id: 'platforms', phase: 2 });
     if (needsOfflineQuestion(answers)) {
-      steps.push({ id: 'offline', phase: 2 });
+      s.push({ id: 'offline', phase: 2 });
     }
-    steps.push({ id: 'strategy', phase: 3 });
-    steps.push({ id: 'email', phase: 3 });
-    return steps;
+    s.push({ id: 'strategy', phase: 3 });
+    s.push({ id: 'email', phase: 3 });
+    return s;
   }, [answers]);
-
-  const steps = getStepConfig();
   const totalSteps = steps.length;
   const currentStepConfig = steps[currentStep - 1];
   const progress = Math.round((currentStep / totalSteps) * 100);
+
+  const PHASE_NAMES: Record<number, string> = {
+    1: 'Projekt-Kontext',
+    2: 'Schmerzpunkte & Prioritäten',
+    3: 'Strategie & Abschluss',
+  };
   const phaseInfo = currentStepConfig
-    ? getPhaseInfo(currentStep)
-    : { phase: 1, name: '' };
+    ? { phase: currentStepConfig.phase, name: PHASE_NAMES[currentStepConfig.phase] || '' }
+    : { phase: 1, name: PHASE_NAMES[1] };
 
   const handleNext = () => {
+    if (isSubmitting) return;
     setError('');
     if (currentStep >= totalSteps) {
       handleGenerate();
@@ -91,10 +106,20 @@ export default function GuidedPage() {
     setError('');
     setShowSummary(false);
     setSummaryText('');
+    // Invalidate phase summaries when going back so they refresh with updated answers
+    const prevStepPhase = steps[currentStep - 2]?.phase;
+    if (prevStepPhase === 2 || currentStepConfig?.phase === 2) {
+      store.setPhase2Summary(null);
+    }
+    if (prevStepPhase === 3 || currentStepConfig?.phase === 3) {
+      store.setPhase3Summary(null);
+    }
     store.prevStep();
   };
 
   const fetchSummary = async (phase: 2 | 3) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     setSummaryLoading(true);
     setShowSummary(true);
     try {
@@ -115,6 +140,7 @@ export default function GuidedPage() {
       setSummaryText('Netzwerkfehler. Sie können trotzdem fortfahren.');
     } finally {
       setSummaryLoading(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -125,6 +151,8 @@ export default function GuidedPage() {
   };
 
   const handleGenerate = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     store.setIsGenerating(true);
     try {
       const res = await fetch('/api/generate', {
@@ -140,6 +168,9 @@ export default function GuidedPage() {
       }
     } catch {
       store.setError('Netzwerkfehler. Bitte versuchen Sie es erneut.');
+    } finally {
+      setIsSubmitting(false);
+      store.setIsGenerating(false);
     }
   };
 
@@ -175,19 +206,33 @@ export default function GuidedPage() {
     }
   };
 
+  // Option button style helper
+  const optionClass = (selected: boolean, disabled?: boolean) =>
+    `p-3.5 rounded-xl text-left text-sm transition-all duration-200 ${
+      selected
+        ? 'glass-strong border-indigo-400/50 bg-indigo-50/60 font-medium text-indigo-900 glow-border'
+        : disabled
+          ? 'glass-subtle text-gray-400 cursor-not-allowed opacity-60'
+          : 'glass-subtle hover:bg-white/50 hover:border-white/40 text-gray-700'
+    }`;
+
   // Loading state
   if (isGenerating) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
-        <Card className="max-w-md w-full mx-4">
-          <CardContent className="py-12 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-6" />
-            <h2 className="text-xl font-bold mb-2">Ihre User Stories werden generiert...</h2>
+      <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-indigo-100 via-purple-50 to-blue-100 flex items-center justify-center">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-20 -left-20 w-72 h-72 bg-purple-300/30 rounded-full blur-3xl animate-float" />
+          <div className="absolute top-1/3 -right-20 w-96 h-96 bg-indigo-300/20 rounded-full blur-3xl animate-float-delayed" />
+        </div>
+        <div className="relative glass-strong max-w-md w-full mx-4 rounded-2xl">
+          <div className="py-12 px-6 text-center">
+            <Loader2 className="size-12 text-indigo-500 animate-spin mx-auto mb-6" />
+            <h2 className="text-xl font-bold mb-2 text-gradient">Ihre User Stories werden generiert...</h2>
             <p className="text-gray-600 text-sm">
               Das dauert ca. 15-30 Sekunden. Bitte warten.
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -195,16 +240,24 @@ export default function GuidedPage() {
   // Error state
   if (store.error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
-        <Card className="max-w-md w-full mx-4">
-          <CardContent className="py-8 text-center">
+      <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-indigo-100 via-purple-50 to-blue-100 flex items-center justify-center">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-20 -left-20 w-72 h-72 bg-purple-300/30 rounded-full blur-3xl animate-float" />
+        </div>
+        <div className="relative glass-strong max-w-md w-full mx-4 rounded-2xl">
+          <div className="py-8 px-6 text-center">
+            <AlertCircle className="size-10 text-red-500 mx-auto mb-4" />
             <h2 className="text-xl font-bold mb-2 text-red-600">Fehler</h2>
-            <p className="text-gray-600 mb-4">{store.error}</p>
-            <Button onClick={() => { store.setError(null); handleGenerate(); }}>
+            <p className="text-gray-600 mb-6">{store.error}</p>
+            <Button
+              disabled={isSubmitting}
+              onClick={() => { store.setError(null); handleGenerate(); }}
+              className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
+            >
               Erneut versuchen
             </Button>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -212,33 +265,43 @@ export default function GuidedPage() {
   // AI Summary overlay
   if (showSummary) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <div className="container mx-auto px-4 py-8 max-w-2xl">
-          <Card>
-            <CardContent className="py-8">
-              <h2 className="text-xl font-bold mb-4">Das habe ich verstanden</h2>
+      <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-indigo-100 via-purple-50 to-blue-100">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-20 -left-20 w-72 h-72 bg-purple-300/30 rounded-full blur-3xl animate-float" />
+          <div className="absolute top-1/3 -right-20 w-96 h-96 bg-indigo-300/20 rounded-full blur-3xl animate-float-delayed" />
+        </div>
+        <div className="relative container mx-auto px-4 py-8 max-w-2xl">
+          <div className="glass-strong rounded-2xl">
+            <div className="py-8 px-6">
+              <div className="flex items-center gap-3 mb-4">
+                <CheckCircle2 className="size-6 text-indigo-500" />
+                <h2 className="text-xl font-bold text-gradient">Das habe ich verstanden</h2>
+              </div>
               {summaryLoading ? (
                 <div className="flex items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mr-3" />
+                  <Loader2 className="size-8 text-indigo-500 animate-spin mr-3" />
                   <span className="text-gray-600">Zusammenfassung wird erstellt...</span>
                 </div>
               ) : (
                 <>
-                  <div className="bg-gray-50 rounded-lg p-4 mb-6 whitespace-pre-wrap text-sm">
+                  <div className="glass-subtle rounded-xl p-5 mb-6 whitespace-pre-wrap text-sm text-gray-700 leading-relaxed">
                     {summaryText}
                   </div>
                   <div className="flex gap-3">
-                    <Button onClick={handleSummaryConfirm} className="flex-1">
+                    <Button
+                      onClick={handleSummaryConfirm}
+                      className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
+                    >
                       Stimmt so, weiter
                     </Button>
-                    <Button variant="outline" onClick={() => { setShowSummary(false); }}>
+                    <Button variant="outline" onClick={() => { setShowSummary(false); }} className="glass-subtle border-white/30">
                       Zurück zur Korrektur
                     </Button>
                   </div>
                 </>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -254,11 +317,11 @@ export default function GuidedPage() {
         return (
           <div className="space-y-4">
             <div>
-              <h2 className="text-xl font-bold mb-1">
-                Beschreiben Sie in 2-3 S&auml;tzen, was Ihre Software k&ouml;nnen soll.
+              <h2 className="text-xl font-bold mb-1 text-gray-900">
+                Beschreiben Sie in 2-3 Sätzen, was Ihre Software können soll.
               </h2>
               <p className="text-sm text-gray-500">
-                Stellen Sie sich vor, Sie erkl&auml;ren einem Kollegen in der Kaffeek&uuml;che, worum es geht.
+                Stellen Sie sich vor, Sie erklären einem Kollegen in der Kaffeeküche, worum es geht.
               </p>
             </div>
             <Textarea
@@ -267,6 +330,7 @@ export default function GuidedPage() {
               placeholder='z.B. "Wir brauchen ein System, mit dem unser Vertriebsteam Leads verwalten und den Status von Verkaufsgesprächen tracken kann."'
               rows={5}
               maxLength={500}
+              className="glass-subtle border-white/30 focus:border-indigo-400/50 focus:ring-indigo-500/20 rounded-xl"
             />
             <p className="text-xs text-gray-400 text-right">
               {(a.projectVision || '').length}/500 Zeichen (min. 30)
@@ -274,16 +338,21 @@ export default function GuidedPage() {
           </div>
         );
 
-      case 'audience':
+      case 'audience': {
+        // Initialize techLevel to default 3 so slider value matches store
+        if (a.techLevel === undefined) {
+          store.setAnswer('techLevel', 3);
+        }
         return (
           <div className="space-y-6">
-            <h2 className="text-xl font-bold">Wer nutzt die Software?</h2>
+            <h2 className="text-xl font-bold text-gray-900">Wer nutzt die Software?</h2>
             <div className="space-y-2">
-              <Label>Rollen und ungef&auml;hre Anzahl</Label>
+              <Label>Rollen und ungefähre Anzahl</Label>
               <Input
                 value={a.targetRoles || ''}
                 onChange={(e) => store.setAnswer('targetRoles', e.target.value)}
                 placeholder='z.B. "15 Vertriebsmitarbeiter, 3 Teamleiter, 2 Backoffice"'
+                className="glass-subtle border-white/30 focus:border-indigo-400/50 focus:ring-indigo-500/20 rounded-xl"
               />
             </div>
             <div className="space-y-2">
@@ -293,11 +362,7 @@ export default function GuidedPage() {
                   <button
                     key={opt}
                     onClick={() => store.setAnswer('userCount', opt as GuidedFormAnswers['userCount'])}
-                    className={`p-3 rounded-lg border text-sm transition-colors ${
-                      a.userCount === opt
-                        ? 'border-primary bg-primary/5 font-medium'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
+                    className={optionClass(a.userCount === opt)}
                   >
                     {opt} Nutzer
                   </button>
@@ -305,42 +370,38 @@ export default function GuidedPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Technisches Level der Hauptnutzer: {a.techLevel || '?'}/5</Label>
-              <div className="flex items-center gap-2">
+              <Label>Technisches Level der Hauptnutzer: {a.techLevel ?? 3}/5</Label>
+              <div className="flex items-center gap-3">
                 <span className="text-xs text-gray-500 w-20">Kaum PC</span>
                 <input
                   type="range"
                   min={1}
                   max={5}
-                  value={a.techLevel || 3}
+                  value={a.techLevel ?? 3}
                   onChange={(e) => store.setAnswer('techLevel', parseInt(e.target.value))}
-                  className="flex-1"
+                  className="flex-1 accent-indigo-500"
                 />
                 <span className="text-xs text-gray-500 w-20 text-right">Power User</span>
               </div>
             </div>
           </div>
         );
+      }
 
       case 'category':
         return (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold">In welche Kategorie f&auml;llt Ihre Software?</h2>
+            <h2 className="text-xl font-bold text-gray-900">In welche Kategorie fällt Ihre Software?</h2>
             <div className="grid gap-2">
               {CATEGORIES.map((cat) => (
                 <button
                   key={cat}
                   onClick={() => {
                     store.setAnswer('category', cat);
-                    // Reset dependent fields when category changes
                     store.setAnswer('mainPain', []);
                     store.setAnswer('topFeatures', []);
                   }}
-                  className={`p-3 rounded-lg border text-left text-sm transition-colors ${
-                    a.category === cat
-                      ? 'border-primary bg-primary/5 font-medium'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
+                  className={optionClass(a.category === cat)}
                 >
                   {cat}
                 </button>
@@ -352,7 +413,7 @@ export default function GuidedPage() {
       case 'systems':
         return (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold">
+            <h2 className="text-xl font-bold text-gray-900">
               Gibt es ein bestehendes System?
             </h2>
             <div className="grid gap-2">
@@ -360,11 +421,7 @@ export default function GuidedPage() {
                 <button
                   key={opt.value}
                   onClick={() => store.setAnswer('existingSystem', opt.value as GuidedFormAnswers['existingSystem'])}
-                  className={`p-3 rounded-lg border text-left text-sm transition-colors ${
-                    a.existingSystem === opt.value
-                      ? 'border-primary bg-primary/5 font-medium'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
+                  className={optionClass(a.existingSystem === opt.value)}
                 >
                   {opt.label}
                 </button>
@@ -376,10 +433,10 @@ export default function GuidedPage() {
       case 'systemDetails':
         return (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold">
+            <h2 className="text-xl font-bold text-gray-900">
               {a.existingSystem === 'replace'
                 ? 'Welches System wird ersetzt? Was funktioniert gut, was nicht?'
-                : 'Welche Systeme m\u00fcssen angebunden werden?'}
+                : 'Welche Systeme müssen angebunden werden?'}
             </h2>
             <Textarea
               value={a.existingSystemDetails || ''}
@@ -390,6 +447,7 @@ export default function GuidedPage() {
                   : 'z.B. "SAP für Auftragsabwicklung, Outlook für E-Mail"'
               }
               rows={4}
+              className="glass-subtle border-white/30 focus:border-indigo-400/50 focus:ring-indigo-500/20 rounded-xl"
             />
           </div>
         );
@@ -398,11 +456,11 @@ export default function GuidedPage() {
         return (
           <div className="space-y-4">
             <div>
-              <h2 className="text-xl font-bold mb-1">
-                Was sind die gr&ouml;&szlig;ten Probleme?
+              <h2 className="text-xl font-bold mb-1 text-gray-900">
+                Was sind die größten Probleme?
               </h2>
               <p className="text-sm text-gray-500">
-                W&auml;hlen Sie die zutreffenden Punkte aus.
+                Wählen Sie die zutreffenden Punkte aus.
               </p>
             </div>
             <div className="grid gap-2">
@@ -418,11 +476,7 @@ export default function GuidedPage() {
                         selected ? current.filter((p) => p !== pain) : [...current, pain],
                       );
                     }}
-                    className={`p-3 rounded-lg border text-left text-sm transition-colors ${
-                      selected
-                        ? 'border-primary bg-primary/5 font-medium'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
+                    className={optionClass(selected)}
                   >
                     {selected ? '\u2611 ' : '\u2610 '}
                     {pain}
@@ -437,11 +491,11 @@ export default function GuidedPage() {
         return (
           <div className="space-y-4">
             <div>
-              <h2 className="text-xl font-bold mb-1">
+              <h2 className="text-xl font-bold mb-1 text-gray-900">
                 Welche 3 Funktionen sind am wichtigsten?
               </h2>
               <p className="text-sm text-gray-500">
-                W&auml;hlen Sie genau 3 Funktionen. Die Reihenfolge der Auswahl bestimmt die Priorit&auml;t.
+                Wählen Sie genau 3 Funktionen. Die Reihenfolge der Auswahl bestimmt die Priorität.
               </p>
             </div>
             <div className="grid gap-2">
@@ -460,13 +514,7 @@ export default function GuidedPage() {
                         selected ? current.filter((f) => f !== feat) : [...current, feat],
                       );
                     }}
-                    className={`p-3 rounded-lg border text-left text-sm transition-colors ${
-                      selected
-                        ? 'border-primary bg-primary/5 font-medium'
-                        : full
-                          ? 'border-gray-100 text-gray-400 cursor-not-allowed'
-                          : 'border-gray-200 hover:border-gray-300'
-                    }`}
+                    className={optionClass(selected, full)}
                   >
                     {selected ? `${idx + 1}. ` : ''}
                     {feat}
@@ -475,7 +523,7 @@ export default function GuidedPage() {
               })}
             </div>
             <p className="text-sm text-gray-500">
-              Gew&auml;hlt: {(a.topFeatures || []).length}/3
+              Gewählt: {(a.topFeatures || []).length}/3
             </p>
           </div>
         );
@@ -483,8 +531,8 @@ export default function GuidedPage() {
       case 'platforms':
         return (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold">
-              Auf welchen Ger&auml;ten soll die Software laufen?
+            <h2 className="text-xl font-bold text-gray-900">
+              Auf welchen Geräten soll die Software laufen?
             </h2>
             <div className="grid gap-2">
               {PLATFORM_OPTIONS.map((plat) => {
@@ -499,11 +547,7 @@ export default function GuidedPage() {
                         selected ? current.filter((p) => p !== plat) : [...current, plat],
                       );
                     }}
-                    className={`p-3 rounded-lg border text-left text-sm transition-colors ${
-                      selected
-                        ? 'border-primary bg-primary/5 font-medium'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
+                    className={optionClass(selected)}
                   >
                     {selected ? '\u2611 ' : '\u2610 '}
                     {plat}
@@ -517,7 +561,7 @@ export default function GuidedPage() {
       case 'offline':
         return (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold">
+            <h2 className="text-xl font-bold text-gray-900">
               Muss die App auch offline funktionieren?
             </h2>
             <div className="grid gap-2">
@@ -525,11 +569,7 @@ export default function GuidedPage() {
                 <button
                   key={opt.value}
                   onClick={() => store.setAnswer('offlineCapability', opt.value as GuidedFormAnswers['offlineCapability'])}
-                  className={`p-3 rounded-lg border text-left text-sm transition-colors ${
-                    a.offlineCapability === opt.value
-                      ? 'border-primary bg-primary/5 font-medium'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
+                  className={optionClass(a.offlineCapability === opt.value)}
                 >
                   {opt.label}
                 </button>
@@ -541,17 +581,13 @@ export default function GuidedPage() {
       case 'strategy':
         return (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold">Was ist Ihnen wichtiger?</h2>
+            <h2 className="text-xl font-bold text-gray-900">Was ist Ihnen wichtiger?</h2>
             <div className="grid gap-3">
               {STRATEGY_OPTIONS.map((opt) => (
                 <button
                   key={opt}
                   onClick={() => store.setAnswer('strategy', opt)}
-                  className={`p-4 rounded-lg border text-left text-sm transition-colors ${
-                    a.strategy === opt
-                      ? 'border-primary bg-primary/5 font-medium'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
+                  className={optionClass(a.strategy === opt)}
                 >
                   {opt}
                 </button>
@@ -563,18 +599,19 @@ export default function GuidedPage() {
       case 'email':
         return (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold">Fast geschafft!</h2>
+            <h2 className="text-xl font-bold text-gray-900">Fast geschafft!</h2>
             <p className="text-sm text-gray-600">
-              Optional: Hinterlassen Sie Ihre E-Mail, falls Sie das PDF sp&auml;ter erneut erhalten m&ouml;chten.
+              Optional: Hinterlassen Sie Ihre E-Mail, falls Sie das PDF später erneut erhalten möchten.
             </p>
             <Input
               type="email"
               value={a.email || ''}
               onChange={(e) => store.setAnswer('email', e.target.value)}
               placeholder="ihre.email@beispiel.de (optional)"
+              className="glass-subtle border-white/30 focus:border-indigo-400/50 focus:ring-indigo-500/20 rounded-xl"
             />
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm font-medium text-blue-800">
+            <div className="glass-subtle rounded-xl p-4 border-indigo-300/30">
+              <p className="text-sm font-medium text-indigo-700">
                 Klicken Sie auf &quot;User Stories generieren&quot; um Ihre Anforderungen zu erstellen.
               </p>
             </div>
@@ -587,30 +624,38 @@ export default function GuidedPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <div className="container mx-auto px-4 py-8 max-w-2xl">
+    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-indigo-100 via-purple-50 to-blue-100">
+      {/* Floating decorative blobs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-20 -left-20 w-72 h-72 bg-purple-300/30 rounded-full blur-3xl animate-float" />
+        <div className="absolute top-1/3 -right-20 w-80 h-80 bg-indigo-300/20 rounded-full blur-3xl animate-float-delayed" />
+        <div className="absolute -bottom-20 left-1/4 w-60 h-60 bg-blue-300/25 rounded-full blur-3xl animate-float-slow" />
+      </div>
+
+      <div className="relative container mx-auto px-4 py-8 max-w-2xl">
         {/* Header with progress */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
             {currentStep > 1 && (
-              <Button variant="ghost" size="sm" onClick={handleBack}>
-                &larr; Zur&uuml;ck
+              <Button variant="ghost" size="sm" onClick={handleBack} className="text-gray-600 hover:text-gray-900 hover:bg-white/40">
+                <ArrowLeft className="size-4 mr-1" />
+                Zurück
               </Button>
             )}
-            <span className="text-sm text-gray-500 ml-auto">
+            <span className="text-sm text-indigo-700/70 font-medium ml-auto glass-subtle rounded-full px-3 py-1">
               Phase {phaseInfo.phase}: {phaseInfo.name}
             </span>
           </div>
-          <Progress value={progress} className="h-2" />
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
+          <Progress value={progress} className="h-2.5" />
+          <div className="flex justify-between text-xs text-gray-500 mt-1.5">
             <span>Schritt {currentStep} von {totalSteps}</span>
             <span>{progress}%</span>
           </div>
         </div>
 
         {/* Step content */}
-        <Card>
-          <CardContent className="py-6">
+        <div className="glass-strong rounded-2xl">
+          <div className="py-6 px-6">
             {renderStep()}
 
             {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
@@ -618,16 +663,16 @@ export default function GuidedPage() {
             <div className="mt-6">
               <Button
                 onClick={handleNext}
-                disabled={!canProceed()}
-                className="w-full"
+                disabled={!canProceed() || isSubmitting}
+                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 shadow-lg shadow-indigo-500/20 transition-all duration-300 hover:shadow-xl hover:shadow-indigo-500/30 disabled:from-gray-300 disabled:to-gray-400 disabled:shadow-none rounded-xl h-11"
               >
                 {currentStep >= totalSteps
                   ? 'User Stories generieren'
                   : 'Weiter'}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </div>
   );

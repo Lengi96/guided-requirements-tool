@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { GuidedFormAnswers, GeneratedOutput } from '@/lib/types';
-import { getTotalSteps, getPhaseInfo } from '@/lib/questions';
+import { getTotalSteps } from '@/lib/questions';
 
 interface GuidedFormStore {
   currentStep: number;
@@ -18,20 +18,15 @@ interface GuidedFormStore {
   nextStep: () => void;
   prevStep: () => void;
   goToStep: (step: number) => void;
-  setPhase2Summary: (s: string) => void;
-  setPhase3Summary: (s: string) => void;
+  setPhase2Summary: (s: string | null) => void;
+  setPhase3Summary: (s: string | null) => void;
   setGeneratedOutput: (o: GeneratedOutput) => void;
   setIsGenerating: (v: boolean) => void;
   setError: (e: string | null) => void;
   reset: () => void;
-
-  // derived
-  totalSteps: () => number;
-  currentPhase: () => { phase: number; name: string };
-  progress: () => number;
 }
 
-export const useGuidedForm = create<GuidedFormStore>((set, get) => ({
+export const useGuidedForm = create<GuidedFormStore>((set) => ({
   currentStep: 1,
   answers: {},
   phase2Summary: null,
@@ -41,7 +36,15 @@ export const useGuidedForm = create<GuidedFormStore>((set, get) => ({
   error: null,
 
   setAnswer: (key, value) =>
-    set((s) => ({ answers: { ...s.answers, [key]: value } })),
+    set((s) => {
+      const update: Partial<GuidedFormStore> = { answers: { ...s.answers, [key]: value } };
+      // Clear stale summaries when category changes
+      if (key === 'category') {
+        update.phase2Summary = null;
+        update.phase3Summary = null;
+      }
+      return update;
+    }),
 
   setAnswers: (partial) =>
     set((s) => ({ answers: { ...s.answers, ...partial } })),
@@ -73,11 +76,4 @@ export const useGuidedForm = create<GuidedFormStore>((set, get) => ({
       isGenerating: false,
       error: null,
     }),
-
-  totalSteps: () => getTotalSteps(get().answers),
-  currentPhase: () => getPhaseInfo(get().currentStep),
-  progress: () => {
-    const total = getTotalSteps(get().answers);
-    return Math.round((get().currentStep / total) * 100);
-  },
 }));

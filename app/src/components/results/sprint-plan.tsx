@@ -15,20 +15,25 @@ export function SprintPlanSection({ sprints }: { sprints: SprintPlan[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm border-collapse">
         <thead>
-          <tr className="border-b bg-gray-50">
-            <th className="text-left py-3 px-4 font-semibold">Sprint</th>
-            <th className="text-left py-3 px-4 font-semibold">User Stories</th>
-            <th className="text-left py-3 px-4 font-semibold">Begründung</th>
+          <tr className="border-b border-white/30">
+            <th className="text-left py-3 px-4 font-semibold text-gray-700">Sprint</th>
+            <th className="text-left py-3 px-4 font-semibold text-gray-700">User Stories</th>
+            <th className="text-left py-3 px-4 font-semibold text-gray-700">Begründung</th>
           </tr>
         </thead>
         <tbody>
-          {sprints.map((sprint) => (
-            <tr key={sprint.sprintNumber} className="border-b">
+          {sprints.map((sprint, idx) => (
+            <tr key={sprint.sprintNumber} className={`border-b border-white/20 transition-colors hover:bg-white/30 ${idx % 2 === 0 ? 'bg-white/10' : ''}`}>
               <td className="py-3 px-4 font-medium whitespace-nowrap">
-                Sprint {sprint.sprintNumber}
+                <span className="inline-flex items-center gap-2">
+                  <span className="size-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 text-white text-xs font-bold flex items-center justify-center shadow-sm">
+                    {sprint.sprintNumber}
+                  </span>
+                  Sprint {sprint.sprintNumber}
+                </span>
               </td>
-              <td className="py-3 px-4">{sprint.stories}</td>
-              <td className="py-3 px-4 text-gray-600">{sprint.reasoning}</td>
+              <td className="py-3 px-4 text-gray-700">{sprint.stories}</td>
+              <td className="py-3 px-4 text-gray-500">{sprint.reasoning}</td>
             </tr>
           ))}
         </tbody>

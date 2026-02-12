@@ -16,7 +16,7 @@ export interface GuidedFormAnswers {
   techLevel: number;
   category: SoftwareCategory;
   existingSystem: 'replace' | 'integrate' | 'new';
-  existingSystemDetails: string;
+  existingSystemDetails?: string;
   mainPain: string[];
   topFeatures: string[];
   platforms: string[];
@@ -46,14 +46,14 @@ export interface UserStory {
   benefit: string;
   acceptanceCriteria: string[];
   dependencies: string[];
-  effort: string;
+  effort: 'S' | 'M' | 'L' | 'XL';
 }
 
 export interface NFR {
   id: string;
   category: string;
   requirement: string;
-  recommendation: string;
+  recommendation: 'Standard' | 'Erweitert' | 'Enterprise';
 }
 
 export interface SprintPlan {
@@ -68,4 +68,5 @@ export interface GeneratedOutput {
   nfrs: NFR[];
   openQuestions: string[];
   sprintPlan: SprintPlan[];
+  parsingWarnings: string[];
 }
