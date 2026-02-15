@@ -21,7 +21,8 @@ import {
 } from '@/lib/questions';
 import { GuidedFormAnswers } from '@/lib/types';
 import { useEffect, useState, useMemo } from 'react';
-import { ArrowLeft, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Loader2, CheckCircle2, AlertCircle, HelpCircle, Upload, X, FileText } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export default function GuidedPage() {
   const router = useRouter();
@@ -83,6 +84,12 @@ export default function GuidedPage() {
     ? { phase: currentStepConfig.phase, name: PHASE_NAMES[currentStepConfig.phase] || '' }
     : { phase: 1, name: PHASE_NAMES[1] };
 
+  useEffect(() => {
+    if (currentStepConfig?.id === 'audience' && answers.techLevel === undefined) {
+      store.setAnswer('techLevel', 3);
+    }
+  }, [answers.techLevel, currentStepConfig?.id, store]);
+
   const handleNext = () => {
     if (isSubmitting) return;
     setError('');
@@ -114,6 +121,7 @@ export default function GuidedPage() {
     if (prevStepPhase === 3 || currentStepConfig?.phase === 3) {
       store.setPhase3Summary(null);
     }
+    store.clearFollowUpData();
     store.prevStep();
   };
 
@@ -131,6 +139,9 @@ export default function GuidedPage() {
       const data = await res.json();
       if (data.success) {
         setSummaryText(data.summary);
+        if (data.followUpQuestions?.length) {
+          store.setFollowUpQuestions(data.followUpQuestions);
+        }
         if (phase === 2) store.setPhase2Summary(data.summary);
         else store.setPhase3Summary(data.summary);
       } else {
@@ -158,7 +169,11 @@ export default function GuidedPage() {
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers }),
+        body: JSON.stringify({
+          answers,
+          followUpQuestions: store.followUpQuestions,
+          followUpAnswers: store.followUpAnswers,
+        }),
       });
       const data = await res.json();
       if (data.success && data.output) {
@@ -287,6 +302,47 @@ export default function GuidedPage() {
                   <div className="glass-subtle rounded-xl p-5 mb-6 whitespace-pre-wrap text-sm text-gray-700 leading-relaxed">
                     {summaryText}
                   </div>
+
+                  {/* Follow-up questions */}
+                  {store.followUpQuestions.length > 0 && (
+                    <div className="space-y-4 mb-6">
+                      <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                        <HelpCircle className="size-4 text-indigo-500" />
+                        Rückfragen
+                      </h3>
+                      {store.followUpQuestions.map((fq) => (
+                        <div key={fq.id} className="glass-subtle rounded-xl p-4 space-y-2">
+                          <div className="flex items-start gap-2">
+                            <p className="text-sm text-gray-700 leading-relaxed flex-1">
+                              {fq.question}
+                            </p>
+                            {fq.isCritical && (
+                              <Badge variant="secondary" className="text-xs bg-red-100 text-red-700 shrink-0">
+                                Kritisch
+                              </Badge>
+                            )}
+                          </div>
+                          <Textarea
+                            value={store.followUpAnswers[fq.id] || ''}
+                            onChange={(e) => store.setFollowUpAnswer(fq.id, e.target.value)}
+                            placeholder="Ihre Antwort..."
+                            rows={2}
+                            className="glass-subtle border-white/30 focus:border-indigo-400/50 focus:ring-indigo-500/20 rounded-xl text-sm"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Warning for unanswered critical questions */}
+                  {store.followUpQuestions.some(
+                    (fq) => fq.isCritical && !store.followUpAnswers[fq.id]?.trim(),
+                  ) && (
+                    <p className="text-xs text-amber-600 mb-3">
+                      Hinweis: Es gibt noch unbeantwortete kritische Rückfragen. Sie können trotzdem fortfahren.
+                    </p>
+                  )}
+
                   <div className="flex gap-3">
                     <Button
                       onClick={handleSummaryConfirm}
@@ -335,14 +391,68 @@ export default function GuidedPage() {
             <p className="text-xs text-gray-400 text-right">
               {(a.projectVision || '').length}/500 Zeichen (min. 30)
             </p>
+
+            {/* Context document upload */}
+            <div className="pt-2 border-t border-white/30">
+              <p className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                <FileText className="size-4 text-indigo-500" />
+                Kontext-Dokument (optional)
+              </p>
+              <p className="text-xs text-gray-500 mb-3">
+                Laden Sie ein Lastenheft, Unternehmensrichtlinien oder andere Dokumente hoch (.txt, .md), damit die KI firmeninterne Standards berücksichtigt.
+              </p>
+              {a.contextDocument ? (
+                <div className="glass-subtle rounded-xl p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText className="size-4 text-indigo-500 shrink-0" />
+                    <span className="text-sm text-gray-700 truncate">{a.contextDocumentName}</span>
+                    <span className="text-xs text-gray-400 shrink-0">
+                      ({Math.round(a.contextDocument.length / 1024)} KB)
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      store.setAnswer('contextDocument', '' as never);
+                      store.setAnswer('contextDocumentName', '' as never);
+                    }}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
+                    title="Dokument entfernen"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+              ) : (
+                <label className="glass-subtle rounded-xl p-4 flex flex-col items-center gap-2 cursor-pointer hover:bg-white/50 transition-colors border-2 border-dashed border-white/40 hover:border-indigo-300/50">
+                  <Upload className="size-5 text-indigo-400" />
+                  <span className="text-sm text-gray-500">Datei auswählen (.txt, .md)</span>
+                  <input
+                    type="file"
+                    accept=".txt,.md,.text,.markdown"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 500 * 1024) {
+                        setError('Datei zu groß (max. 500 KB).');
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        const text = reader.result as string;
+                        store.setAnswer('contextDocument', text as never);
+                        store.setAnswer('contextDocumentName', file.name as never);
+                        setError('');
+                      };
+                      reader.readAsText(file);
+                    }}
+                  />
+                </label>
+              )}
+            </div>
           </div>
         );
 
       case 'audience': {
-        // Initialize techLevel to default 3 so slider value matches store
-        if (a.techLevel === undefined) {
-          store.setAnswer('techLevel', 3);
-        }
         return (
           <div className="space-y-6">
             <h2 className="text-xl font-bold text-gray-900">Wer nutzt die Software?</h2>

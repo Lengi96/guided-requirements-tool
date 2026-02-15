@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import { GuidedFormAnswers, GeneratedOutput } from '@/lib/types';
+import { GuidedFormAnswers, GeneratedOutput, FollowUpQuestion, UserStory, NFR } from '@/lib/types';
 import { getTotalSteps } from '@/lib/questions';
 
 interface GuidedFormStore {
@@ -13,17 +13,40 @@ interface GuidedFormStore {
   isGenerating: boolean;
   error: string | null;
 
+  // Follow-up questions (Feature 1)
+  followUpQuestions: FollowUpQuestion[];
+  followUpAnswers: Record<string, string>;
+
+  // Actions — form navigation
   setAnswer: <K extends keyof GuidedFormAnswers>(key: K, value: GuidedFormAnswers[K]) => void;
   setAnswers: (partial: Partial<GuidedFormAnswers>) => void;
   nextStep: () => void;
   prevStep: () => void;
   goToStep: (step: number) => void;
+
+  // Actions — summaries & follow-ups
   setPhase2Summary: (s: string | null) => void;
   setPhase3Summary: (s: string | null) => void;
+  setFollowUpQuestions: (questions: FollowUpQuestion[]) => void;
+  setFollowUpAnswer: (questionId: string, answer: string) => void;
+  clearFollowUpData: () => void;
+
+  // Actions — generation
   setGeneratedOutput: (o: GeneratedOutput) => void;
   setIsGenerating: (v: boolean) => void;
   setError: (e: string | null) => void;
   reset: () => void;
+
+  // Actions — edit results (Feature 2)
+  updateUserStory: (number: number, updates: Partial<UserStory>) => void;
+  addUserStory: (story: UserStory) => void;
+  deleteUserStory: (number: number) => void;
+  updateNFR: (id: string, updates: Partial<NFR>) => void;
+  addNFR: (nfr: NFR) => void;
+  deleteNFR: (id: string) => void;
+  updateOpenQuestion: (index: number, newText: string) => void;
+  addOpenQuestion: (question: string) => void;
+  deleteOpenQuestion: (index: number) => void;
 }
 
 export const useGuidedForm = create<GuidedFormStore>((set) => ({
@@ -34,14 +57,19 @@ export const useGuidedForm = create<GuidedFormStore>((set) => ({
   generatedOutput: null,
   isGenerating: false,
   error: null,
+  followUpQuestions: [],
+  followUpAnswers: {},
+
+  // --- Form navigation ---
 
   setAnswer: (key, value) =>
     set((s) => {
       const update: Partial<GuidedFormStore> = { answers: { ...s.answers, [key]: value } };
-      // Clear stale summaries when category changes
       if (key === 'category') {
         update.phase2Summary = null;
         update.phase3Summary = null;
+        update.followUpQuestions = [];
+        update.followUpAnswers = {};
       }
       return update;
     }),
@@ -51,16 +79,37 @@ export const useGuidedForm = create<GuidedFormStore>((set) => ({
 
   nextStep: () =>
     set((s) => ({
-      currentStep: Math.min(s.currentStep + 1, getTotalSteps(s.answers) + 1),
+      currentStep: Math.min(s.currentStep + 1, getTotalSteps(s.answers)),
     })),
 
   prevStep: () =>
     set((s) => ({ currentStep: Math.max(s.currentStep - 1, 1) })),
 
-  goToStep: (step) => set({ currentStep: step }),
+  goToStep: (step) =>
+    set((s) => ({
+      currentStep: Math.max(1, Math.min(step, getTotalSteps(s.answers))),
+    })),
+
+  // --- Summaries & follow-ups ---
 
   setPhase2Summary: (s) => set({ phase2Summary: s }),
   setPhase3Summary: (s) => set({ phase3Summary: s }),
+
+  setFollowUpQuestions: (questions) =>
+    set({
+      followUpQuestions: questions,
+      followUpAnswers: Object.fromEntries(questions.map((q) => [q.id, ''])),
+    }),
+
+  setFollowUpAnswer: (questionId, answer) =>
+    set((s) => ({
+      followUpAnswers: { ...s.followUpAnswers, [questionId]: answer },
+    })),
+
+  clearFollowUpData: () =>
+    set({ followUpQuestions: [], followUpAnswers: {} }),
+
+  // --- Generation ---
 
   setGeneratedOutput: (o) => set({ generatedOutput: o, isGenerating: false }),
   setIsGenerating: (v) => set({ isGenerating: v, error: null }),
@@ -75,5 +124,111 @@ export const useGuidedForm = create<GuidedFormStore>((set) => ({
       generatedOutput: null,
       isGenerating: false,
       error: null,
+      followUpQuestions: [],
+      followUpAnswers: {},
+    }),
+
+  // --- Edit results (Feature 2) ---
+
+  updateUserStory: (number, updates) =>
+    set((s) => {
+      if (!s.generatedOutput) return s;
+      return {
+        generatedOutput: {
+          ...s.generatedOutput,
+          userStories: s.generatedOutput.userStories.map((story) =>
+            story.number === number ? { ...story, ...updates } : story,
+          ),
+        },
+      };
+    }),
+
+  addUserStory: (story) =>
+    set((s) => {
+      if (!s.generatedOutput) return s;
+      return {
+        generatedOutput: {
+          ...s.generatedOutput,
+          userStories: [...s.generatedOutput.userStories, story],
+        },
+      };
+    }),
+
+  deleteUserStory: (number) =>
+    set((s) => {
+      if (!s.generatedOutput) return s;
+      return {
+        generatedOutput: {
+          ...s.generatedOutput,
+          userStories: s.generatedOutput.userStories.filter((story) => story.number !== number),
+        },
+      };
+    }),
+
+  updateNFR: (id, updates) =>
+    set((s) => {
+      if (!s.generatedOutput) return s;
+      return {
+        generatedOutput: {
+          ...s.generatedOutput,
+          nfrs: s.generatedOutput.nfrs.map((nfr) =>
+            nfr.id === id ? { ...nfr, ...updates } : nfr,
+          ),
+        },
+      };
+    }),
+
+  addNFR: (nfr) =>
+    set((s) => {
+      if (!s.generatedOutput) return s;
+      return {
+        generatedOutput: {
+          ...s.generatedOutput,
+          nfrs: [...s.generatedOutput.nfrs, nfr],
+        },
+      };
+    }),
+
+  deleteNFR: (id) =>
+    set((s) => {
+      if (!s.generatedOutput) return s;
+      return {
+        generatedOutput: {
+          ...s.generatedOutput,
+          nfrs: s.generatedOutput.nfrs.filter((nfr) => nfr.id !== id),
+        },
+      };
+    }),
+
+  updateOpenQuestion: (index, newText) =>
+    set((s) => {
+      if (!s.generatedOutput) return s;
+      const questions = [...s.generatedOutput.openQuestions];
+      questions[index] = newText;
+      return {
+        generatedOutput: { ...s.generatedOutput, openQuestions: questions },
+      };
+    }),
+
+  addOpenQuestion: (question) =>
+    set((s) => {
+      if (!s.generatedOutput) return s;
+      return {
+        generatedOutput: {
+          ...s.generatedOutput,
+          openQuestions: [...s.generatedOutput.openQuestions, question],
+        },
+      };
+    }),
+
+  deleteOpenQuestion: (index) =>
+    set((s) => {
+      if (!s.generatedOutput) return s;
+      return {
+        generatedOutput: {
+          ...s.generatedOutput,
+          openQuestions: s.generatedOutput.openQuestions.filter((_, i) => i !== index),
+        },
+      };
     }),
 }));
