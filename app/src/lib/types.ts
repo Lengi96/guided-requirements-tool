@@ -23,6 +23,8 @@ export interface GuidedFormAnswers {
   offlineCapability: 'full' | 'partial' | 'none';
   strategy: string;
   email: string;
+  contextDocument?: string;
+  contextDocumentName?: string;
 }
 
 export interface GuidedFormState {
@@ -47,6 +49,7 @@ export interface UserStory {
   acceptanceCriteria: string[];
   dependencies: string[];
   effort: 'S' | 'M' | 'L' | 'XL';
+  sourceTag?: string;
 }
 
 export interface NFR {
@@ -54,6 +57,7 @@ export interface NFR {
   category: string;
   requirement: string;
   recommendation: 'Standard' | 'Erweitert' | 'Enterprise';
+  sourceTag?: string;
 }
 
 export interface SprintPlan {
@@ -68,5 +72,17 @@ export interface GeneratedOutput {
   nfrs: NFR[];
   openQuestions: string[];
   sprintPlan: SprintPlan[];
+  mermaidDiagram?: string;
   parsingWarnings: string[];
+}
+
+export interface FollowUpQuestion {
+  id: string;
+  question: string;
+  isCritical: boolean;
+}
+
+export interface SummaryResponse {
+  summaryText: string;
+  followUpQuestions: FollowUpQuestion[];
 }

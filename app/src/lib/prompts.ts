@@ -1,4 +1,4 @@
-import { GuidedFormAnswers } from './types';
+import { GuidedFormAnswers, FollowUpQuestion } from './types';
 
 export const SYSTEM_PROMPT = `Du bist ein erfahrener Requirements Engineer und Business Analyst mit 15 Jahren Erfahrung.
 
@@ -14,9 +14,19 @@ Regeln:
 7. Berücksichtige das technische Level der Nutzer bei UX-Anforderungen.
 8. Leite nicht-funktionale Anforderungen aus dem Kontext ab.
 9. Sei präzise und professionell. Keine Füllwörter.
-10. Wenn Informationen fehlen oder unklar sind, formuliere offene Fragen.`;
+10. Wenn Informationen fehlen oder unklar sind, formuliere offene Fragen.
 
-export function buildGenerationPrompt(answers: GuidedFormAnswers): string {
+WICHTIG – Quellenrückverfolgung (Source-Tagging):
+11. Jede User Story MUSS ein Feld "**Quelle:**" enthalten, das angibt, auf welchen Teil des Nutzer-Inputs sie sich bezieht.
+12. Verwende dafür exakte Zitate oder Verweise aus dem Input: z.B. "Quelle: Vision ('Online-Shop für nachhaltige Produkte'), Top-Feature #2 ('Warenkorb')".
+13. Erfinde KEINE Anforderungen, die nicht aus dem Input ableitbar sind. Wenn du etwas ergänzt, kennzeichne es explizit als "[ERGÄNZUNG]" mit Begründung.
+14. Bei NFRs gib ebenfalls an, ob sie aus dem Input abgeleitet oder als Best Practice ergänzt wurden: "Abgeleitet aus: [Quelle]" oder "[BEST PRACTICE]".`;
+
+export function buildGenerationPrompt(
+  answers: GuidedFormAnswers,
+  followUpQuestions?: FollowUpQuestion[],
+  followUpAnswers?: Record<string, string>,
+): string {
   const systemLabel =
     answers.existingSystem === 'replace'
       ? 'Ersetzt ein bestehendes System'
@@ -50,6 +60,19 @@ ${answers.existingSystemDetails ? `- **Details:** ${answers.existingSystemDetail
 
 ## Projekt-Strategie
 ${answers.strategy}
+${(() => {
+  if (!followUpQuestions?.length || !followUpAnswers) return '';
+  const pairs = followUpQuestions
+    .filter((fq) => followUpAnswers[fq.id]?.trim())
+    .map((fq) => `**Frage:** ${fq.question}\n**Antwort:** ${followUpAnswers[fq.id]}`);
+  if (pairs.length === 0) return '';
+  return `\n## Klärungen (Antworten auf Rückfragen)\n${pairs.join('\n\n')}`;
+})()}
+${(() => {
+  if (!answers.contextDocument) return '';
+  const docName = answers.contextDocumentName || 'Kontext-Dokument';
+  return `\n## Kontext-Dokument: ${docName}\nDer Nutzer hat folgendes Dokument als zusätzlichen Kontext hochgeladen. Berücksichtige die darin enthaltenen Standards, Anforderungen und Rahmenbedingungen bei der Erstellung der User Stories und NFRs.\n\n${answers.contextDocument}`;
+})()}
 
 ---
 
@@ -73,6 +96,7 @@ damit [konkreter Business Value]
 
 **Abhängigkeiten:** [Falls vorhanden]
 **Geschätzter Aufwand:** S / M / L / XL
+**Quelle:** [Exaktes Zitat oder Verweis auf den Nutzer-Input, z.B. "Vision: '...', Top-Feature #1: '...'"]
 
 ---
 
@@ -82,6 +106,7 @@ Leite NFRs ab zu Performance, Security, Verfügbarkeit, Plattformen.
 
 Format: **NFR-[Kürzel][Nr]:** [Beschreibung]
 Empfehlung: Standard / Erweitert / Enterprise
+Abgeleitet aus: [Verweis auf Input oder "[BEST PRACTICE]"]
 
 ---
 
@@ -96,18 +121,44 @@ Liste 3-5 offene Fragen als nummerierte Liste.
 | Sprint | User Stories | Begründung |
 |---|---|---|
 | Sprint 1 | ... | ... |
-| Sprint 2 | ... | ... |`;
+| Sprint 2 | ... | ... |
+
+---
+
+## TEIL 5: USER FLOW DIAGRAMM
+
+Erstelle ein Mermaid-Flowchart-Diagramm, das den Haupt-Nutzerfluss der Anwendung zeigt.
+Verwende das \`graph TD\`-Format (Top-Down). Beschrifte alle Knoten auf Deutsch.
+Maximal 8-12 Knoten. Verwende Entscheidungsknoten (Rauten) wo sinnvoll.
+
+Umschließe das Diagramm mit den Markern:
+---MERMAID_START---
+graph TD
+  ...
+---MERMAID_END---`;
 }
 
 export const SUMMARY_SYSTEM_PROMPT = `Du bist ein erfahrener Requirements Engineer, der einem Product Owner hilft, seine Anforderungen zu strukturieren.
 
-Fasse zusammen, was der User bisher beschrieben hat. Identifiziere 1-2 kritische Rückfragen, falls etwas unklar ist.
+Fasse zusammen, was der User bisher beschrieben hat. Stelle gezielte Rückfragen, um Unklarheiten zu beseitigen und bessere User Stories generieren zu können.
 
 Regeln:
 1. Schreibe auf Deutsch.
-2. Max. 150 Wörter.
-3. Strukturiere in Stichpunkten.
-4. Nur Rückfragen wenn wirklich kritisch unklar.`;
+2. Max. 150 Wörter für die Zusammenfassung.
+3. Strukturiere die Zusammenfassung in Stichpunkten.
+4. Stelle 1-3 Rückfragen. Markiere kritische Fragen mit [KRITISCH], optionale mit [OPTIONAL].
+5. Fokussiere Rückfragen auf: fehlende Business-Logik, unklare Abgrenzungen, Nutzer-Workflows, Schnittstellen und Prioritätskonflikte.
+
+Ausgabeformat (exakt einhalten):
+
+---ZUSAMMENFASSUNG---
+[Deine Zusammenfassung in Stichpunkten]
+
+---RÜCKFRAGEN---
+[KRITISCH] Frage 1
+[OPTIONAL] Frage 2
+
+Falls keine Rückfragen nötig sind, schreibe nach ---RÜCKFRAGEN--- nur: Keine`;
 
 export function buildSummaryPrompt(
   answers: Partial<GuidedFormAnswers>,
@@ -124,12 +175,12 @@ export function buildSummaryPrompt(
 - **Top-Funktionen:** ${answers.topFeatures?.join(', ')}
 - **Plattformen:** ${answers.platforms?.join(', ')}
 
-Fasse in 3-4 Stichpunkten zusammen, was du verstanden hast. Falls etwas unklar ist, stelle 1-2 präzise Rückfragen.`;
+Fasse in 3-4 Stichpunkten zusammen, was du verstanden hast. Stelle Rückfragen zu unklaren Punkten. Verwende das vorgegebene Ausgabeformat.`;
   }
 
   return `Zusätzlich hat der Product Owner folgende Strategie gewählt:
 
 **Strategie:** ${answers.strategy}
 
-Bestätige kurz (2-3 Sätze), dass du die Gesamtausrichtung verstanden hast, und ob es noch etwas zu klären gibt, bevor die User Stories generiert werden.`;
+Bestätige kurz, dass du die Gesamtausrichtung verstanden hast. Stelle abschließende Rückfragen, falls noch etwas geklärt werden sollte, bevor die User Stories generiert werden. Verwende das vorgegebene Ausgabeformat.`;
 }

@@ -1,11 +1,56 @@
-import { GeneratedOutput, UserStory, NFR, SprintPlan } from './types';
+import { GeneratedOutput, UserStory, NFR, SprintPlan, FollowUpQuestion, SummaryResponse } from './types';
+
+export function parseSummaryResponse(raw: string): SummaryResponse {
+  const summaryMatch = raw.match(/---ZUSAMMENFASSUNG---([\s\S]*?)---RÜCKFRAGEN---/);
+  const questionsMatch = raw.match(/---RÜCKFRAGEN---([\s\S]*?)$/);
+
+  const summaryText = summaryMatch
+    ? summaryMatch[1].trim()
+    : raw.trim(); // Fallback: entire response = summary
+
+  const followUpQuestions: FollowUpQuestion[] = [];
+
+  if (questionsMatch) {
+    const questionsBlock = questionsMatch[1].trim();
+    if (questionsBlock.toLowerCase() !== 'keine') {
+      const lines = questionsBlock.split('\n').filter((l) => l.trim());
+      lines.forEach((line, idx) => {
+        const criticalMatch = line.match(/\[KRITISCH\]\s*(.+)/);
+        const optionalMatch = line.match(/\[OPTIONAL\]\s*(.+)/);
+
+        if (criticalMatch) {
+          followUpQuestions.push({
+            id: `fq-${idx + 1}`,
+            question: criticalMatch[1].trim(),
+            isCritical: true,
+          });
+        } else if (optionalMatch) {
+          followUpQuestions.push({
+            id: `fq-${idx + 1}`,
+            question: optionalMatch[1].trim(),
+            isCritical: false,
+          });
+        } else if (line.trim()) {
+          followUpQuestions.push({
+            id: `fq-${idx + 1}`,
+            question: line.trim(),
+            isCritical: false,
+          });
+        }
+      });
+    }
+  }
+
+  return { summaryText, followUpQuestions };
+}
 
 export function parseClaudeOutput(raw: string): GeneratedOutput {
   const warnings: string[] = [];
   const userStories = parseStories(raw, warnings);
   const nfrs = parseNFRs(raw, warnings);
   const openQuestions = parseOpenQuestions(raw, warnings);
-  const sprintPlan = parseSprintPlan(raw, warnings);
+  const sprintPlan = parseSprintPlan(raw);
+  const mermaidDiagram = parseMermaidDiagram(raw);
 
   if (userStories.length === 0) {
     warnings.push('Keine User Stories erkannt. Prüfen Sie die rohe Antwort.');
@@ -23,6 +68,7 @@ export function parseClaudeOutput(raw: string): GeneratedOutput {
     nfrs,
     openQuestions,
     sprintPlan,
+    mermaidDiagram,
     parsingWarnings: warnings,
   };
 }
@@ -87,6 +133,9 @@ function parseStories(raw: string, warnings: string[]): UserStory[] {
       ? effortRaw
       : 'M') as UserStory['effort'];
 
+    const sourceMatch = body.match(/\*\*Quelle:\*\*\s*(.+)/);
+    const sourceTag = sourceMatch ? sourceMatch[1].trim() : undefined;
+
     stories.push({
       number: num,
       title,
@@ -97,6 +146,7 @@ function parseStories(raw: string, warnings: string[]): UserStory[] {
       acceptanceCriteria,
       dependencies,
       effort,
+      sourceTag,
     });
   }
 
@@ -129,11 +179,15 @@ function parseNFRs(raw: string, warnings: string[]): NFR[] {
       ? recRaw
       : 'Standard') as NFR['recommendation'];
 
+    const sourceTagMatch = rest.match(/Abgeleitet aus:\s*(.+?)(?:\s*Empfehlung:|$)/);
+    const nfrSourceTag = sourceTagMatch ? sourceTagMatch[1].trim() : undefined;
+
     nfrs.push({
       id: `NFR-${catCode}${num}`,
       category: catMap[catCode] || catCode,
-      requirement: rest.replace(/\s*Empfehlung:.*/, '').trim(),
+      requirement: rest.replace(/\s*(?:Empfehlung:|Abgeleitet aus:).*/, '').trim(),
       recommendation,
+      sourceTag: nfrSourceTag,
     });
   }
 
@@ -174,7 +228,7 @@ function parseOpenQuestions(raw: string, warnings: string[]): string[] {
   return matches.map((m) => m[1].trim());
 }
 
-function parseSprintPlan(raw: string, warnings: string[]): SprintPlan[] {
+function parseSprintPlan(raw: string): SprintPlan[] {
   const plans: SprintPlan[] = [];
   const matches = [...raw.matchAll(/\|\s*Sprint\s+(\d+)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|/g)];
 
@@ -189,4 +243,17 @@ function parseSprintPlan(raw: string, warnings: string[]): SprintPlan[] {
   }
 
   return plans;
+}
+
+function parseMermaidDiagram(raw: string): string | undefined {
+  const match = raw.match(/---MERMAID_START---([\s\S]*?)---MERMAID_END---/);
+  if (match) {
+    return match[1].trim();
+  }
+  // Fallback: try to find a mermaid code block
+  const codeBlockMatch = raw.match(/```mermaid\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    return codeBlockMatch[1].trim();
+  }
+  return undefined;
 }

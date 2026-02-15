@@ -1,16 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGuidedForm } from '@/hooks/use-guided-form';
 import { StoryCard } from '@/components/results/story-card';
 import { NFRSection } from '@/components/results/nfr-section';
 import { QuestionsSection } from '@/components/results/questions-section';
 import { SprintPlanSection } from '@/components/results/sprint-plan';
+import { InvestReport } from '@/components/results/invest-report';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Download, RotateCcw, BookOpen, ShieldCheck, HelpCircle, Calendar, Loader2, AlertTriangle } from 'lucide-react';
+import { Download, RotateCcw, BookOpen, ShieldCheck, HelpCircle, Calendar, Loader2, AlertTriangle, FileText, GitBranch, ClipboardCheck } from 'lucide-react';
+import { generateMarkdown } from '@/lib/markdown-export';
+import { MermaidDiagram } from '@/components/results/mermaid-diagram';
+import { validateAllStories } from '@/lib/invest-validator';
 
 export default function ResultsPage() {
   const router = useRouter();
@@ -28,7 +32,9 @@ export default function ResultsPage() {
     return null;
   }
 
-  const { userStories, nfrs, openQuestions, sprintPlan, parsingWarnings } = generatedOutput;
+  const { userStories, nfrs, openQuestions, sprintPlan, mermaidDiagram, parsingWarnings } = generatedOutput;
+
+  const investResults = useMemo(() => validateAllStories(userStories), [userStories]);
 
   const handleDownloadPDF = async () => {
     if (isDownloadingPDF) return;
@@ -64,6 +70,24 @@ export default function ResultsPage() {
     } finally {
       setIsDownloadingPDF(false);
     }
+  };
+
+  const handleDownloadMarkdown = () => {
+    const markdown = generateMarkdown({
+      output: generatedOutput,
+      projectName: answers.projectVision?.slice(0, 60) || 'Projekt',
+      email: answers.email || '',
+      date: new Date().toLocaleDateString('de-DE'),
+    });
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `anforderungen-${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleRestart = () => {
@@ -103,6 +127,10 @@ export default function ResultsPage() {
               <Button variant="outline" onClick={handleRestart} className="glass-subtle border-white/30 hover:bg-white/50">
                 <RotateCcw className="size-4 mr-2" />
                 Neues Projekt
+              </Button>
+              <Button variant="outline" onClick={handleDownloadMarkdown} className="glass-subtle border-white/30 hover:bg-white/50">
+                <FileText className="size-4 mr-2" />
+                Markdown
               </Button>
               <Button onClick={handleDownloadPDF} disabled={isDownloadingPDF} className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 shadow-lg shadow-indigo-500/20 disabled:opacity-70">
                 {isDownloadingPDF ? (
@@ -153,30 +181,74 @@ export default function ResultsPage() {
           </div>
         )}
 
+        {/* Legend for interpretation */}
+        <div className="glass rounded-2xl p-5 mb-6">
+          <h2 className="text-base font-semibold text-gray-900 mb-3">Legende: Prioritaet und Aufwand</h2>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Prioritaet</p>
+              <div className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <Badge className="bg-gradient-to-r from-red-500 to-pink-500 text-white border-0">HOCH</Badge>
+                  <p className="text-sm text-gray-700">Direkter Business-Nutzen oder kritisch fuer den Start.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Badge className="bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0">MITTEL</Badge>
+                  <p className="text-sm text-gray-700">Wichtig, aber nicht zwingend fuer den ersten Release.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Badge className="bg-gradient-to-r from-emerald-400 to-teal-400 text-white border-0">NIEDRIG</Badge>
+                  <p className="text-sm text-gray-700">Spaetere Optimierung oder Nice-to-have.</p>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Aufwand</p>
+              <div className="space-y-2 text-sm text-gray-700">
+                <p><span className="font-semibold text-gray-900">S:</span> kleiner, klar abgrenzbarer Umfang</p>
+                <p><span className="font-semibold text-gray-900">M:</span> mittlerer Umfang mit ueblichem Implementierungsaufwand</p>
+                <p><span className="font-semibold text-gray-900">L:</span> groesserer Umfang mit mehr Abstimmung und Tests</p>
+                <p><span className="font-semibold text-gray-900">XL:</span> sehr grosser Umfang ueber mehrere Iterationen</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Tabs */}
         <Tabs defaultValue="stories" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 glass-strong rounded-xl p-1">
-            <TabsTrigger value="stories" className="rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm">
-              User Stories
-              <Badge variant="secondary" className="ml-2 text-xs bg-indigo-100 text-indigo-700">
+          <TabsList className="flex w-full glass-strong rounded-xl p-1 gap-1">
+            <TabsTrigger value="stories" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
+              Stories
+              <Badge variant="secondary" className="ml-1.5 text-xs bg-indigo-100 text-indigo-700">
                 {userStories.length}
               </Badge>
             </TabsTrigger>
-            <TabsTrigger value="nfrs" className="rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm">
+            <TabsTrigger value="nfrs" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
               NFRs
-              <Badge variant="secondary" className="ml-2 text-xs bg-purple-100 text-purple-700">
+              <Badge variant="secondary" className="ml-1.5 text-xs bg-purple-100 text-purple-700">
                 {nfrs.length}
               </Badge>
             </TabsTrigger>
-            <TabsTrigger value="questions" className="rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm">
-              Offene Fragen
-              <Badge variant="secondary" className="ml-2 text-xs bg-amber-100 text-amber-700">
+            <TabsTrigger value="questions" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
+              Fragen
+              <Badge variant="secondary" className="ml-1.5 text-xs bg-amber-100 text-amber-700">
                 {openQuestions.length}
               </Badge>
             </TabsTrigger>
-            <TabsTrigger value="sprints" className="rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm">
-              Sprint-Plan
+            <TabsTrigger value="sprints" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
+              Sprints
             </TabsTrigger>
+            <TabsTrigger value="invest" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
+              <ClipboardCheck className="size-3.5 mr-1" />
+              INVEST
+            </TabsTrigger>
+            {mermaidDiagram && (
+              <TabsTrigger value="diagram" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
+                <GitBranch className="size-3.5 mr-1" />
+                Flow
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="stories" className="space-y-4">
@@ -216,6 +288,26 @@ export default function ResultsPage() {
               <SprintPlanSection sprints={sprintPlan} />
             </div>
           </TabsContent>
+
+          <TabsContent value="invest">
+            <div className="glass rounded-2xl p-6">
+              <h3 className="text-lg font-semibold text-gradient mb-4">INVEST-Qualitätsprüfung</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Automatische Analyse der User Stories nach den INVEST-Kriterien (Independent, Negotiable, Valuable, Estimable, Small, Testable).
+              </p>
+              <InvestReport results={investResults} />
+            </div>
+          </TabsContent>
+
+          {mermaidDiagram && (
+            <TabsContent value="diagram">
+              <div className="glass rounded-2xl p-6">
+                <h3 className="text-lg font-semibold text-gradient mb-4">User Flow Diagramm</h3>
+                <p className="text-sm text-gray-500 mb-4">Automatisch generierter Nutzerfluss basierend auf deinen Anforderungen.</p>
+                <MermaidDiagram chart={mermaidDiagram} />
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
 
         {/* Raw output toggle */}
