@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { SUMMARY_SYSTEM_PROMPT, buildSummaryPrompt } from '@/lib/prompts';
 import { parseSummaryResponse } from '@/lib/parser';
 import { getValidationErrorMessage, summarizeRequestSchema } from '@/lib/api-schemas';
+import { getAnthropicApiKey } from '@/lib/env';
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,10 +26,10 @@ export async function POST(request: NextRequest) {
     }
     const { answers, phase } = parsed.data;
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = getAnthropicApiKey();
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'API-Schlüssel nicht konfiguriert.' },
+        { error: 'API-Schlüssel nicht konfiguriert. Bitte ANTHROPIC_API_KEY in app/.env.local setzen.' },
         { status: 500 },
       );
     }
