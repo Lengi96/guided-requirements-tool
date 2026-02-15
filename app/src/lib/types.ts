@@ -20,9 +20,9 @@ export interface GuidedFormAnswers {
   mainPain: string[];
   topFeatures: string[];
   platforms: string[];
-  offlineCapability: 'full' | 'partial' | 'none';
+  offlineCapability?: 'full' | 'partial' | 'none';
   strategy: string;
-  email: string;
+  email?: string;
   contextDocument?: string;
   contextDocumentName?: string;
 }
