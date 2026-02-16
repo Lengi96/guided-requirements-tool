@@ -1,4 +1,4 @@
-import { GuidedFormAnswers, FollowUpQuestion } from './types';
+import { GuidedFormAnswers, FollowUpQuestion, UserStory } from './types';
 
 export const SYSTEM_PROMPT = `Du bist ein erfahrener Requirements Engineer und Business Analyst mit 15 Jahren Erfahrung.
 
@@ -183,4 +183,55 @@ Fasse in 3-4 Stichpunkten zusammen, was du verstanden hast. Stelle Rückfragen z
 **Strategie:** ${answers.strategy}
 
 Bestätige kurz, dass du die Gesamtausrichtung verstanden hast. Stelle abschließende Rückfragen, falls noch etwas geklärt werden sollte, bevor die User Stories generiert werden. Verwende das vorgegebene Ausgabeformat.`;
+}
+
+export const TEST_CASE_SYSTEM_PROMPT = `Du bist ein Senior QA Engineer mit Fokus auf testbare Anforderungen, Traceability und reproduzierbare Tests.
+
+Regeln:
+1. Schreibe auf Deutsch.
+2. Arbeite strikt an der gegebenen User Story. Erfinde keine fremden Features.
+3. Erzeuge realistische, klar durchfuehrbare Testfaelle.
+4. Liefere gueltiges JSON entsprechend dem vorgegebenen Schema.
+5. Stelle sicher, dass auch Negativ- und Randfaelle enthalten sind.
+6. Jeder Testfall muss direkt auf die Akzeptanzkriterien der Story rueckfuehrbar sein.`;
+
+export function buildTestCaseGenerationPrompt(story: UserStory): string {
+  const criteria = story.acceptanceCriteria.length
+    ? story.acceptanceCriteria.map((item, index) => `${index + 1}. ${item}`).join('\n')
+    : 'Keine expliziten Akzeptanzkriterien vorhanden.';
+
+  return `Erzeuge Testfaelle fuer diese User Story:
+
+Story-Nummer: ${story.number}
+Titel: ${story.title}
+Prioritaet: ${story.priority}
+Als ${story.role}
+moechte ich ${story.action}
+damit ${story.benefit}
+
+Akzeptanzkriterien:
+${criteria}
+
+Rueckgabeformat (nur JSON, kein Markdown, kein weiterer Text):
+{
+  "gherkin": [
+    {
+      "id": "G-${story.number}-1",
+      "scenario": "Kurzer Szenario-Titel",
+      "given": ["Vorbedingung 1", "Vorbedingung 2"],
+      "when": ["Aktion 1"],
+      "then": ["Erwartung 1", "Erwartung 2"]
+    }
+  ],
+  "classic": [
+    {
+      "id": "TC-${story.number}-1",
+      "scenario": "Kurzer Szenario-Titel",
+      "steps": ["Schritt 1", "Schritt 2"],
+      "expectedResult": "Praezise Erwartung"
+    }
+  ]
+}
+
+Erzeuge mindestens 3 Gherkin- und 3 klassische Testfaelle.`;
 }

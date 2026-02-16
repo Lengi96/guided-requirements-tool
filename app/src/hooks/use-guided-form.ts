@@ -1,7 +1,16 @@
 'use client';
 
 import { create } from 'zustand';
-import { GuidedFormAnswers, GeneratedOutput, FollowUpQuestion, UserStory, NFR } from '@/lib/types';
+import {
+  GuidedFormAnswers,
+  GeneratedOutput,
+  FollowUpQuestion,
+  UserStory,
+  NFR,
+  RequirementTestSuite,
+  GherkinTestCase,
+  ClassicTestCase,
+} from '@/lib/types';
 import { getTotalSteps } from '@/lib/questions';
 
 interface GuidedFormStore {
@@ -47,6 +56,17 @@ interface GuidedFormStore {
   updateOpenQuestion: (index: number, newText: string) => void;
   addOpenQuestion: (question: string) => void;
   deleteOpenQuestion: (index: number) => void;
+  upsertTestSuite: (suite: RequirementTestSuite) => void;
+  updateGherkinTestCase: (
+    storyNumber: number,
+    testCaseId: string,
+    updates: Partial<GherkinTestCase>,
+  ) => void;
+  updateClassicTestCase: (
+    storyNumber: number,
+    testCaseId: string,
+    updates: Partial<ClassicTestCase>,
+  ) => void;
 }
 
 export const useGuidedForm = create<GuidedFormStore>((set) => ({
@@ -228,6 +248,65 @@ export const useGuidedForm = create<GuidedFormStore>((set) => ({
         generatedOutput: {
           ...s.generatedOutput,
           openQuestions: s.generatedOutput.openQuestions.filter((_, i) => i !== index),
+        },
+      };
+    }),
+
+  upsertTestSuite: (suite) =>
+    set((s) => {
+      if (!s.generatedOutput) return s;
+      const suites = s.generatedOutput.testSuites ?? [];
+      const existingIndex = suites.findIndex(
+        (item) => item.storyNumber === suite.storyNumber,
+      );
+      const nextSuites = [...suites];
+      if (existingIndex >= 0) {
+        nextSuites[existingIndex] = suite;
+      } else {
+        nextSuites.push(suite);
+      }
+      return {
+        generatedOutput: {
+          ...s.generatedOutput,
+          testSuites: nextSuites,
+        },
+      };
+    }),
+
+  updateGherkinTestCase: (storyNumber, testCaseId, updates) =>
+    set((s) => {
+      if (!s.generatedOutput) return s;
+      return {
+        generatedOutput: {
+          ...s.generatedOutput,
+          testSuites: (s.generatedOutput.testSuites ?? []).map((suite) => {
+            if (suite.storyNumber !== storyNumber) return suite;
+            return {
+              ...suite,
+              gherkin: suite.gherkin.map((tc) =>
+                tc.id === testCaseId ? { ...tc, ...updates } : tc,
+              ),
+            };
+          }),
+        },
+      };
+    }),
+
+  updateClassicTestCase: (storyNumber, testCaseId, updates) =>
+    set((s) => {
+      if (!s.generatedOutput) return s;
+      return {
+        generatedOutput: {
+          ...s.generatedOutput,
+          testSuites: (s.generatedOutput.testSuites ?? []).map((suite) => {
+            if (suite.storyNumber !== storyNumber) return suite;
+            return {
+              ...suite,
+              classic: suite.classic.map((tc) =>
+                tc.id === testCaseId ? { ...tc, ...updates } : tc,
+              ),
+            };
+          }),
         },
       };
     }),

@@ -36,6 +36,19 @@ const followUpQuestionSchema = z.object({
   isCritical: z.boolean(),
 });
 
+const userStorySchema = z.object({
+  number: z.number().int().positive(),
+  title: z.string().trim().min(1),
+  priority: z.enum(['HOCH', 'MITTEL', 'NIEDRIG']),
+  role: z.string().trim().min(1),
+  action: z.string().trim().min(1),
+  benefit: z.string().trim().min(1),
+  acceptanceCriteria: z.array(z.string().trim().min(1)),
+  dependencies: z.array(z.string().trim()),
+  effort: z.enum(['S', 'M', 'L', 'XL']),
+  sourceTag: z.string().optional(),
+});
+
 export const generateRequestSchema = z.object({
   answers: guidedFormAnswersSchema,
   followUpQuestions: z.array(followUpQuestionSchema).optional(),
@@ -45,6 +58,10 @@ export const generateRequestSchema = z.object({
 export const summarizeRequestSchema = z.object({
   answers: guidedFormAnswersSchema.partial(),
   phase: z.union([z.literal(2), z.literal(3)]),
+});
+
+export const testCaseGenerationRequestSchema = z.object({
+  story: userStorySchema,
 });
 
 const pdfOutputSchema = z.object({

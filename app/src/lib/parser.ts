@@ -65,6 +65,7 @@ export function parseClaudeOutput(raw: string): GeneratedOutput {
   return {
     rawResponse: raw,
     userStories,
+    testSuites: [],
     nfrs,
     openQuestions,
     sprintPlan,

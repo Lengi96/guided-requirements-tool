@@ -2,7 +2,8 @@
 
 import { UserStory } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, Wand2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 const priorityMeta: Record<UserStory['priority'], { badgeClass: string; impactText: string }> = {
   HOCH: {
@@ -42,9 +43,11 @@ interface StoryCardProps {
   story: UserStory;
   onEdit?: (story: UserStory) => void;
   onDelete?: (storyNumber: number) => void;
+  onGenerateTestCases?: (story: UserStory) => void;
+  isGeneratingTestCases?: boolean;
 }
 
-export function StoryCard({ story, onEdit, onDelete }: StoryCardProps) {
+export function StoryCard({ story, onEdit, onDelete, onGenerateTestCases, isGeneratingTestCases = false }: StoryCardProps) {
   const criteriaCount = story.acceptanceCriteria.length;
   const dependencyCount = story.dependencies.length;
   const scopeHint =
@@ -88,6 +91,20 @@ export function StoryCard({ story, onEdit, onDelete }: StoryCardProps) {
             )}
           </div>
         </div>
+
+        {onGenerateTestCases && (
+          <div className="mb-3">
+            <Button
+              size="sm"
+              onClick={() => onGenerateTestCases(story)}
+              disabled={isGeneratingTestCases}
+              className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
+            >
+              <Wand2 className="size-3.5 mr-1.5" />
+              {isGeneratingTestCases ? 'Generierung...' : 'Testfaelle generieren'}
+            </Button>
+          </div>
+        )}
 
         <div className="glass-subtle rounded-xl p-3 mb-4 space-y-1.5">
           <p className="text-sm text-gray-700">

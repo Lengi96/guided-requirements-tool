@@ -52,6 +52,38 @@ export interface UserStory {
   sourceTag?: string;
 }
 
+export interface QualityIssue {
+  id: string;
+  term: string;
+  location: string;
+  context: string;
+  suggestion: string;
+  severity: 'niedrig' | 'mittel' | 'hoch';
+}
+
+export interface GherkinTestCase {
+  id: string;
+  scenario: string;
+  given: string[];
+  when: string[];
+  then: string[];
+}
+
+export interface ClassicTestCase {
+  id: string;
+  scenario: string;
+  steps: string[];
+  expectedResult: string;
+}
+
+export interface RequirementTestSuite {
+  storyNumber: number;
+  storyTitle: string;
+  generatedAt: string;
+  gherkin: GherkinTestCase[];
+  classic: ClassicTestCase[];
+}
+
 export interface NFR {
   id: string;
   category: string;
@@ -69,6 +101,7 @@ export interface SprintPlan {
 export interface GeneratedOutput {
   rawResponse: string;
   userStories: UserStory[];
+  testSuites: RequirementTestSuite[];
   nfrs: NFR[];
   openQuestions: string[];
   sprintPlan: SprintPlan[];
