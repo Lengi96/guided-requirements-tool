@@ -20,9 +20,11 @@ export interface GuidedFormAnswers {
   mainPain: string[];
   topFeatures: string[];
   platforms: string[];
-  offlineCapability: 'full' | 'partial' | 'none';
+  offlineCapability?: 'full' | 'partial' | 'none';
   strategy: string;
-  email: string;
+  email?: string;
+  contextDocument?: string;
+  contextDocumentName?: string;
 }
 
 export interface GuidedFormState {
@@ -47,6 +49,39 @@ export interface UserStory {
   acceptanceCriteria: string[];
   dependencies: string[];
   effort: 'S' | 'M' | 'L' | 'XL';
+  sourceTag?: string;
+}
+
+export interface QualityIssue {
+  id: string;
+  term: string;
+  location: string;
+  context: string;
+  suggestion: string;
+  severity: 'niedrig' | 'mittel' | 'hoch';
+}
+
+export interface GherkinTestCase {
+  id: string;
+  scenario: string;
+  given: string[];
+  when: string[];
+  then: string[];
+}
+
+export interface ClassicTestCase {
+  id: string;
+  scenario: string;
+  steps: string[];
+  expectedResult: string;
+}
+
+export interface RequirementTestSuite {
+  storyNumber: number;
+  storyTitle: string;
+  generatedAt: string;
+  gherkin: GherkinTestCase[];
+  classic: ClassicTestCase[];
 }
 
 export interface NFR {
@@ -54,6 +89,7 @@ export interface NFR {
   category: string;
   requirement: string;
   recommendation: 'Standard' | 'Erweitert' | 'Enterprise';
+  sourceTag?: string;
 }
 
 export interface SprintPlan {
@@ -65,8 +101,21 @@ export interface SprintPlan {
 export interface GeneratedOutput {
   rawResponse: string;
   userStories: UserStory[];
+  testSuites: RequirementTestSuite[];
   nfrs: NFR[];
   openQuestions: string[];
   sprintPlan: SprintPlan[];
+  mermaidDiagram?: string;
   parsingWarnings: string[];
+}
+
+export interface FollowUpQuestion {
+  id: string;
+  question: string;
+  isCritical: boolean;
+}
+
+export interface SummaryResponse {
+  summaryText: string;
+  followUpQuestions: FollowUpQuestion[];
 }

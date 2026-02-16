@@ -1,27 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { GuidedFormAnswers } from '@/lib/types';
 import { SUMMARY_SYSTEM_PROMPT, buildSummaryPrompt } from '@/lib/prompts';
+import { parseSummaryResponse } from '@/lib/parser';
+import { getValidationErrorMessage, summarizeRequestSchema } from '@/lib/api-schemas';
+import { getAnthropicApiKey } from '@/lib/env';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { answers, phase } = body as {
-      answers: Partial<GuidedFormAnswers>;
-      phase: 2 | 3;
-    };
-
-    if (!answers || !phase) {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
       return NextResponse.json(
-        { error: 'Answers und Phase sind erforderlich.' },
+        { error: 'Ungültiges JSON im Request-Body.' },
         { status: 400 },
       );
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const parsed = summarizeRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: getValidationErrorMessage(parsed.error) },
+        { status: 400 },
+      );
+    }
+    const { answers, phase } = parsed.data;
+
+    const apiKey = getAnthropicApiKey();
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'API-Schlüssel nicht konfiguriert.' },
+        { error: 'API-Schlüssel nicht konfiguriert. Bitte ANTHROPIC_API_KEY in app/.env.local setzen.' },
         { status: 500 },
       );
     }
@@ -31,7 +39,7 @@ export async function POST(request: NextRequest) {
 
     const message = await client.messages.create({
       model,
-      max_tokens: 500,
+      max_tokens: 700,
       temperature: 0.3,
       system: SUMMARY_SYSTEM_PROMPT,
       messages: [
@@ -50,7 +58,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ success: true, summary: textContent.text });
+    const summaryParsed = parseSummaryResponse(textContent.text);
+
+    return NextResponse.json({
+      success: true,
+      summary: summaryParsed.summaryText,
+      followUpQuestions: summaryParsed.followUpQuestions,
+    });
   } catch (error) {
     console.error('Summarize error:', error);
 

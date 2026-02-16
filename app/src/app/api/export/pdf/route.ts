@@ -1,30 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
-import { GeneratedOutput } from '@/lib/types';
 import { createPDFDocument } from './pdf-document';
-
-interface ExportRequest {
-  output: GeneratedOutput;
-  projectName: string;
-  email: string;
-}
+import { getValidationErrorMessage, pdfExportRequestSchema } from '@/lib/api-schemas';
+import { GeneratedOutput } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const body: ExportRequest = await request.json();
-    const { output, projectName, email } = body;
-
-    if (!output?.userStories?.length) {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
       return NextResponse.json(
-        { error: 'Keine User Stories zum Exportieren.' },
+        { error: 'Ungültiges JSON im Request-Body.' },
         { status: 400 },
       );
     }
 
+    const parsed = pdfExportRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: getValidationErrorMessage(parsed.error) },
+        { status: 400 },
+      );
+    }
+    const { output, projectName, email } = parsed.data;
+
+    const safeProjectName = (projectName || 'Projekt').toString().trim().slice(0, 120);
+    const safeEmail = (email || '').toString().trim().slice(0, 120);
+
     const doc = createPDFDocument({
-      output,
-      projectName,
-      email,
+      output: output as unknown as GeneratedOutput,
+      projectName: safeProjectName,
+      email: safeEmail,
       date: new Date().toLocaleDateString('de-DE'),
     });
 

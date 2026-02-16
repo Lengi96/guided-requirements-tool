@@ -1,36 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { GuidedFormAnswers } from '@/lib/types';
 import { SYSTEM_PROMPT, buildGenerationPrompt } from '@/lib/prompts';
 import { parseClaudeOutput } from '@/lib/parser';
+import { generateRequestSchema, getValidationErrorMessage } from '@/lib/api-schemas';
+import { getAnthropicApiKey } from '@/lib/env';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { answers } = body as { answers: GuidedFormAnswers };
-
-    const missing: string[] = [];
-    if (!answers?.projectVision) missing.push('Projektvision');
-    if (!answers?.category) missing.push('Kategorie');
-    if (!answers?.topFeatures?.length) missing.push('Top-Funktionen');
-    if (!answers?.targetRoles) missing.push('Zielgruppen-Rollen');
-    if (!answers?.userCount) missing.push('Nutzeranzahl');
-    if (!answers?.techLevel) missing.push('Technisches Level');
-    if (!answers?.mainPain?.length) missing.push('Hauptprobleme');
-    if (!answers?.platforms?.length) missing.push('Plattformen');
-    if (!answers?.strategy) missing.push('Strategie');
-
-    if (missing.length > 0) {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
       return NextResponse.json(
-        { error: `Pflichtfelder fehlen: ${missing.join(', ')}` },
+        { error: 'Ungültiges JSON im Request-Body.' },
         { status: 400 },
       );
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const parsed = generateRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: getValidationErrorMessage(parsed.error) },
+        { status: 400 },
+      );
+    }
+    const { answers, followUpQuestions, followUpAnswers } = parsed.data;
+
+    const apiKey = getAnthropicApiKey();
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'API-Schlüssel nicht konfiguriert.' },
+        { error: 'API-Schlüssel nicht konfiguriert. Bitte ANTHROPIC_API_KEY in app/.env.local setzen.' },
         { status: 500 },
       );
     }
@@ -46,7 +45,11 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: 'user',
-          content: buildGenerationPrompt(answers),
+          content: buildGenerationPrompt(
+            answers as Parameters<typeof buildGenerationPrompt>[0],
+            followUpQuestions,
+            followUpAnswers,
+          ),
         },
       ],
     });

@@ -1,22 +1,39 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGuidedForm } from '@/hooks/use-guided-form';
 import { StoryCard } from '@/components/results/story-card';
 import { NFRSection } from '@/components/results/nfr-section';
 import { QuestionsSection } from '@/components/results/questions-section';
 import { SprintPlanSection } from '@/components/results/sprint-plan';
+import { InvestReport } from '@/components/results/invest-report';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Download, RotateCcw, BookOpen, ShieldCheck, HelpCircle, Calendar, Loader2, AlertTriangle } from 'lucide-react';
+import { Download, RotateCcw, BookOpen, ShieldCheck, HelpCircle, Calendar, Loader2, AlertTriangle, FileText, GitBranch, ClipboardCheck, TestTube2 } from 'lucide-react';
+import { generateMarkdown } from '@/lib/markdown-export';
+import { MermaidDiagram } from '@/components/results/mermaid-diagram';
+import { validateAllStories } from '@/lib/invest-validator';
+import { analyzeStoryAmbiguity } from '@/lib/ambiguity-check';
+import { ValidationTestsSection } from '@/components/results/validation-tests-section';
+import { generateTestCasesCsv } from '@/lib/testcase-csv';
+import { RequirementTestSuite, UserStory } from '@/lib/types';
 
 export default function ResultsPage() {
   const router = useRouter();
-  const { generatedOutput, answers, reset } = useGuidedForm();
+  const {
+    generatedOutput,
+    answers,
+    reset,
+    upsertTestSuite,
+    updateGherkinTestCase,
+    updateClassicTestCase,
+  } = useGuidedForm();
   const [isDownloadingPDF, setIsDownloadingPDF] = useState(false);
   const [pdfError, setPdfError] = useState('');
+  const [generatingStoryNumber, setGeneratingStoryNumber] = useState<number | null>(null);
+  const [generationErrorByStory, setGenerationErrorByStory] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (!generatedOutput) {
@@ -24,11 +41,30 @@ export default function ResultsPage() {
     }
   }, [generatedOutput, router]);
 
+  const outputData = useMemo(() => {
+    return {
+      userStories: generatedOutput?.userStories ?? [],
+      testSuites: generatedOutput?.testSuites ?? [],
+      nfrs: generatedOutput?.nfrs ?? [],
+      openQuestions: generatedOutput?.openQuestions ?? [],
+      sprintPlan: generatedOutput?.sprintPlan ?? [],
+      mermaidDiagram: generatedOutput?.mermaidDiagram,
+      parsingWarnings: generatedOutput?.parsingWarnings ?? [],
+    };
+  }, [generatedOutput]);
+
+  const { userStories, testSuites, nfrs, openQuestions, sprintPlan, mermaidDiagram, parsingWarnings } = outputData;
+
+  const investResults = useMemo(() => validateAllStories(userStories), [userStories]);
+  const qualityByStory = useMemo(() => {
+    return Object.fromEntries(
+      userStories.map((story) => [story.number, analyzeStoryAmbiguity(story)]),
+    );
+  }, [userStories]);
+
   if (!generatedOutput) {
     return null;
   }
-
-  const { userStories, nfrs, openQuestions, sprintPlan, parsingWarnings } = generatedOutput;
 
   const handleDownloadPDF = async () => {
     if (isDownloadingPDF) return;
@@ -66,28 +102,91 @@ export default function ResultsPage() {
     }
   };
 
+  const handleDownloadMarkdown = () => {
+    const markdown = generateMarkdown({
+      output: generatedOutput,
+      projectName: answers.projectVision?.slice(0, 60) || 'Projekt',
+      email: answers.email || '',
+      date: new Date().toLocaleDateString('de-DE'),
+    });
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `anforderungen-${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadTestCasesCsv = () => {
+    if (testSuites.length === 0) return;
+    const csv = generateTestCasesCsv(testSuites);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `testfaelle-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleRestart = () => {
     reset();
     router.push('/');
   };
 
+  const handleGenerateTestCases = async (story: UserStory) => {
+    if (generatingStoryNumber) return;
+    setGeneratingStoryNumber(story.number);
+    setGenerationErrorByStory((prev) => ({ ...prev, [story.number]: '' }));
+
+    try {
+      const response = await fetch('/api/test-cases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ story }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Testfallgenerierung fehlgeschlagen.');
+      }
+
+      const suite: RequirementTestSuite = {
+        storyNumber: story.number,
+        storyTitle: story.title,
+        generatedAt: new Date().toISOString(),
+        gherkin: data.testCases.gherkin,
+        classic: data.testCases.classic,
+      };
+
+      upsertTestSuite(suite);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unbekannter Fehler bei der Testfallgenerierung.';
+      setGenerationErrorByStory((prev) => ({ ...prev, [story.number]: message }));
+    } finally {
+      setGeneratingStoryNumber(null);
+    }
+  };
+
   const stats = [
     { label: 'User Stories', value: userStories.length, color: 'from-indigo-500 to-blue-500', icon: BookOpen },
-    { label: 'Hohe Priorität', value: userStories.filter((s) => s.priority === 'HOCH').length, color: 'from-red-500 to-pink-500', icon: ShieldCheck },
+    { label: 'Hohe Prioritaet', value: userStories.filter((s) => s.priority === 'HOCH').length, color: 'from-red-500 to-pink-500', icon: ShieldCheck },
     { label: 'NFRs', value: nfrs.length, color: 'from-purple-500 to-violet-500', icon: HelpCircle },
     { label: 'Sprints', value: sprintPlan.length, color: 'from-emerald-500 to-teal-500', icon: Calendar },
   ];
 
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-indigo-50 via-purple-50/50 to-blue-50">
-      {/* Floating decorative blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-20 -right-20 w-72 h-72 bg-purple-300/20 rounded-full blur-3xl animate-float" />
         <div className="absolute top-1/2 -left-20 w-80 h-80 bg-indigo-300/15 rounded-full blur-3xl animate-float-delayed" />
         <div className="absolute -bottom-20 right-1/3 w-60 h-60 bg-blue-300/20 rounded-full blur-3xl animate-float-slow" />
       </div>
 
-      {/* Header */}
       <div className="relative glass-strong border-b border-white/30 sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 py-5">
           <div className="flex items-center justify-between">
@@ -103,6 +202,10 @@ export default function ResultsPage() {
               <Button variant="outline" onClick={handleRestart} className="glass-subtle border-white/30 hover:bg-white/50">
                 <RotateCcw className="size-4 mr-2" />
                 Neues Projekt
+              </Button>
+              <Button variant="outline" onClick={handleDownloadMarkdown} className="glass-subtle border-white/30 hover:bg-white/50">
+                <FileText className="size-4 mr-2" />
+                Markdown
               </Button>
               <Button onClick={handleDownloadPDF} disabled={isDownloadingPDF} className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 shadow-lg shadow-indigo-500/20 disabled:opacity-70">
                 {isDownloadingPDF ? (
@@ -120,7 +223,6 @@ export default function ResultsPage() {
         </div>
       </div>
 
-      {/* Stats */}
       <div className="relative max-w-5xl mx-auto px-4 py-6">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {stats.map(({ label, value, color, icon: Icon }) => (
@@ -136,7 +238,6 @@ export default function ResultsPage() {
           ))}
         </div>
 
-        {/* Parsing warnings */}
         {parsingWarnings && parsingWarnings.length > 0 && (
           <div className="glass rounded-2xl p-4 mb-6 border border-amber-300/30 bg-amber-50/40">
             <div className="flex items-start gap-3">
@@ -153,30 +254,76 @@ export default function ResultsPage() {
           </div>
         )}
 
-        {/* Tabs */}
+        <div className="glass rounded-2xl p-5 mb-6">
+          <h2 className="text-base font-semibold text-gray-900 mb-3">Legende: Prioritaet und Aufwand</h2>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Prioritaet</p>
+              <div className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <Badge className="bg-gradient-to-r from-red-500 to-pink-500 text-white border-0">HOCH</Badge>
+                  <p className="text-sm text-gray-700">Direkter Business-Nutzen oder kritisch fuer den Start.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Badge className="bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0">MITTEL</Badge>
+                  <p className="text-sm text-gray-700">Wichtig, aber nicht zwingend fuer den ersten Release.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Badge className="bg-gradient-to-r from-emerald-400 to-teal-400 text-white border-0">NIEDRIG</Badge>
+                  <p className="text-sm text-gray-700">Spaetere Optimierung oder Nice-to-have.</p>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Aufwand</p>
+              <div className="space-y-2 text-sm text-gray-700">
+                <p><span className="font-semibold text-gray-900">S:</span> kleiner, klar abgrenzbarer Umfang</p>
+                <p><span className="font-semibold text-gray-900">M:</span> mittlerer Umfang mit ueblichem Implementierungsaufwand</p>
+                <p><span className="font-semibold text-gray-900">L:</span> groesserer Umfang mit mehr Abstimmung und Tests</p>
+                <p><span className="font-semibold text-gray-900">XL:</span> sehr grosser Umfang ueber mehrere Iterationen</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <Tabs defaultValue="stories" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 glass-strong rounded-xl p-1">
-            <TabsTrigger value="stories" className="rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm">
-              User Stories
-              <Badge variant="secondary" className="ml-2 text-xs bg-indigo-100 text-indigo-700">
+          <TabsList className="flex w-full glass-strong rounded-xl p-1 gap-1">
+            <TabsTrigger value="stories" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
+              Stories
+              <Badge variant="secondary" className="ml-1.5 text-xs bg-indigo-100 text-indigo-700">
                 {userStories.length}
               </Badge>
             </TabsTrigger>
-            <TabsTrigger value="nfrs" className="rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm">
+            <TabsTrigger value="nfrs" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
               NFRs
-              <Badge variant="secondary" className="ml-2 text-xs bg-purple-100 text-purple-700">
+              <Badge variant="secondary" className="ml-1.5 text-xs bg-purple-100 text-purple-700">
                 {nfrs.length}
               </Badge>
             </TabsTrigger>
-            <TabsTrigger value="questions" className="rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm">
-              Offene Fragen
-              <Badge variant="secondary" className="ml-2 text-xs bg-amber-100 text-amber-700">
+            <TabsTrigger value="questions" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
+              Fragen
+              <Badge variant="secondary" className="ml-1.5 text-xs bg-amber-100 text-amber-700">
                 {openQuestions.length}
               </Badge>
             </TabsTrigger>
-            <TabsTrigger value="sprints" className="rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm">
-              Sprint-Plan
+            <TabsTrigger value="sprints" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
+              Sprints
             </TabsTrigger>
+            <TabsTrigger value="invest" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
+              <ClipboardCheck className="size-3.5 mr-1" />
+              INVEST
+            </TabsTrigger>
+            <TabsTrigger value="validation" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
+              <TestTube2 className="size-3.5 mr-1" />
+              Validierung & Tests
+            </TabsTrigger>
+            {mermaidDiagram && (
+              <TabsTrigger value="diagram" className="flex-1 rounded-lg data-[state=active]:bg-white/70 data-[state=active]:shadow-sm text-xs sm:text-sm">
+                <GitBranch className="size-3.5 mr-1" />
+                Flow
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="stories" className="space-y-4">
@@ -192,7 +339,12 @@ export default function ResultsPage() {
               })}
             </div>
             {userStories.map((story) => (
-              <StoryCard key={story.number} story={story} />
+              <StoryCard
+                key={story.number}
+                story={story}
+                onGenerateTestCases={handleGenerateTestCases}
+                isGeneratingTestCases={generatingStoryNumber === story.number}
+              />
             ))}
           </TabsContent>
 
@@ -216,9 +368,61 @@ export default function ResultsPage() {
               <SprintPlanSection sprints={sprintPlan} />
             </div>
           </TabsContent>
+
+          <TabsContent value="invest">
+            <div className="glass rounded-2xl p-6">
+              <h3 className="text-lg font-semibold text-gradient mb-4">INVEST-Qualitaetspruefung</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Automatische Analyse der User Stories nach den INVEST-Kriterien (Independent, Negotiable, Valuable, Estimable, Small, Testable).
+              </p>
+              <InvestReport results={investResults} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="validation">
+            <div className="glass rounded-2xl p-6 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-gradient mb-1">Validierung & Tests</h3>
+                  <p className="text-sm text-gray-500">
+                    Ambiguity-Check fuer schwammige Begriffe plus Testfallerzeugung pro User Story (Gherkin + klassische Schritte).
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={handleDownloadTestCasesCsv}
+                  disabled={testSuites.length === 0}
+                  className="glass-subtle border-white/30 hover:bg-white/50"
+                >
+                  <FileText className="size-4 mr-2" />
+                  Testfaelle CSV
+                </Button>
+              </div>
+
+              <ValidationTestsSection
+                stories={userStories}
+                suites={testSuites}
+                qualityByStory={qualityByStory}
+                generatingStoryNumber={generatingStoryNumber}
+                generationErrorByStory={generationErrorByStory}
+                onGenerateTestCases={handleGenerateTestCases}
+                onUpdateGherkin={updateGherkinTestCase}
+                onUpdateClassic={updateClassicTestCase}
+              />
+            </div>
+          </TabsContent>
+
+          {mermaidDiagram && (
+            <TabsContent value="diagram">
+              <div className="glass rounded-2xl p-6">
+                <h3 className="text-lg font-semibold text-gradient mb-4">User Flow Diagramm</h3>
+                <p className="text-sm text-gray-500 mb-4">Automatisch generierter Nutzerfluss basierend auf deinen Anforderungen.</p>
+                <MermaidDiagram chart={mermaidDiagram} />
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
 
-        {/* Raw output toggle */}
         <details className="mt-8 glass rounded-2xl p-5">
           <summary className="text-sm text-gray-500 cursor-pointer hover:text-indigo-600 transition-colors">
             Rohe Claude-Antwort anzeigen
@@ -228,7 +432,6 @@ export default function ResultsPage() {
           </pre>
         </details>
 
-        {/* Footer */}
         <div className="text-center py-12 text-sm text-gray-400">
           Generiert mit dem Guided Requirements Tool &middot;{' '}
           {new Date().toLocaleDateString('de-DE')}
